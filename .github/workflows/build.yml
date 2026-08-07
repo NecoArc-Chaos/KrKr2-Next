@@ -302,6 +302,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          mkdir -p out/cppcheck
           cppcheck \
             --project=out/linux/debug/compile_commands.json \
             --cppcheck-build-dir=out/cppcheck \
