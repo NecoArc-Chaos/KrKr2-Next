@@ -54,6 +54,7 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             mkdir -p "$VCPKG_ROOT"
             git -C "$VCPKG_ROOT" init
@@ -230,6 +231,7 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             mkdir -p "$VCPKG_ROOT"
             git -C "$VCPKG_ROOT" init
@@ -291,6 +293,7 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             mkdir -p "$VCPKG_ROOT"
             git -C "$VCPKG_ROOT" init
@@ -362,6 +365,7 @@ jobs:
       - name: Setup vcpkg
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           if (-not (Test-Path (Join-Path $env:VCPKG_ROOT '.git'))) {
             New-Item -ItemType Directory -Force -Path $env:VCPKG_ROOT | Out-Null
             git -C $env:VCPKG_ROOT init
@@ -457,6 +461,7 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             mkdir -p "$VCPKG_ROOT"
             git -C "$VCPKG_ROOT" init
@@ -522,6 +527,7 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             mkdir -p "$VCPKG_ROOT"
             git -C "$VCPKG_ROOT" init
@@ -594,6 +600,7 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             mkdir -p "$VCPKG_ROOT"
             git -C "$VCPKG_ROOT" init
