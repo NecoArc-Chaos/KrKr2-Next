@@ -12,7 +12,7 @@ add_library(7zip)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_compile_options(7zip PRIVATE
-        $<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8-a+crc>)
+        $<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8-a+crc+crypto>)
 endif()
 
 # Check makefile in srcdir/CPP/7zip/Archive/7z/makefile
