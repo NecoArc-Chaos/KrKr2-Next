@@ -17,9 +17,13 @@ if (VCPKG_TARGET_ARCHITECTURE STREQUAL "x86" OR VCPKG_TARGET_ARCHITECTURE STREQU
     vcpkg_find_acquire_program(NASM)
     get_filename_component(NASM_EXE_PATH "${NASM}" DIRECTORY)
     vcpkg_add_to_path("${NASM_EXE_PATH}")
+    if(VCPKG_HOST_IS_WINDOWS)
+        file(TO_CMAKE_PATH "${NASM}" NASM_CMAKE_PATH)
+        set(NASM_CONFIGURE_OPTION " --yasmexe=\"${NASM_CMAKE_PATH}\"")
+    endif()
 endif()
 
-set(OPTIONS "--enable-pic --disable-doc --enable-debug=3 --enable-runtime-cpudetect")
+set(OPTIONS "--enable-pic --disable-doc --enable-debug=3 --enable-runtime-cpudetect${NASM_CONFIGURE_OPTION}")
 
 if(VCPKG_TARGET_IS_MINGW)
     if(VCPKG_TARGET_ARCHITECTURE STREQUAL "x86")
