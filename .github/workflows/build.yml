@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   actions: read
+  packages: read
   security-events: write
 
 concurrency:
@@ -22,9 +23,198 @@ concurrency:
 env:
   VCPKG_ROOT: ${{ github.workspace }}/.devtools/vcpkg
   VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/binary-cache
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.cache/vcpkg/binary-cache,read"
+  VCPKG_BINARY_CACHE_MODE: read
 
 jobs:
+  vcpkg-dependencies:
+    if: github.event_name != 'pull_request'
+    name: vcpkg dependencies (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      VCPKG_BINARY_CACHE_MODE: readwrite
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+            triplet: x64-linux
+            preset: Linux Release Config
+          - platform: windows
+            runner: windows-2025
+            triplet: x64-windows-static-md
+            preset: Windows Release Config
+          - platform: android
+            runner: ubuntu-24.04
+            triplet: arm64-android
+          - platform: macos
+            runner: macos-14
+            triplet: arm64-osx
+            preset: MacOS Release Config
+          - platform: ios
+            runner: macos-14
+            triplet: arm64-ios
+            preset: iOS Release Config
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        if: matrix.platform == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Setup Android
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux' || matrix.platform == 'android'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool mono-runtime \
+            libx11-dev libxext-dev libxfixes-dev libxi-dev libxrandr-dev \
+            nasm ninja-build pkg-config
+
+      - name: Install Android SDK/NDK
+        if: matrix.platform == 'android'
+        shell: bash
+        env:
+          ANDROID_NDK_VERSION: 28.0.13004108
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "cmake;3.31.1" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos' || matrix.platform == 'ios'
+        shell: bash
+        run: |
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          brew list mono >/dev/null 2>&1 || brew install mono
+
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install nasm --no-progress --yes
+
+      - name: Cache vcpkg binary artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-
+
+      - name: Setup vcpkg (Unix)
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Setup vcpkg (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          if (-not (Test-Path (Join-Path $env:VCPKG_ROOT '.git'))) {
+            New-Item -ItemType Directory -Force -Path $env:VCPKG_ROOT | Out-Null
+            git -C $env:VCPKG_ROOT init
+            git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg.git
+            git -C $env:VCPKG_ROOT config remote.origin.promisor true
+            git -C $env:VCPKG_ROOT config remote.origin.partialclonefilter blob:none
+            git -C $env:VCPKG_ROOT fetch --filter=blob:none --no-tags origin HEAD
+            git -C $env:VCPKG_ROOT checkout --force FETCH_HEAD
+          }
+          if ((git -C $env:VCPKG_ROOT rev-parse --is-shallow-repository).Trim() -eq 'true') {
+            git -C $env:VCPKG_ROOT fetch --unshallow --filter=blob:none
+          }
+          if (-not (Test-Path (Join-Path $env:VCPKG_ROOT 'vcpkg.exe'))) {
+            & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          }
+          & (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') version
+
+      - name: Configure binary cache (Unix)
+        if: matrix.platform != 'windows'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
+
+      - name: Configure binary cache (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pwsh -File .github/scripts/configure-vcpkg-binary-cache.ps1
+
+      - name: Prebuild Android dependencies
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet "${{ matrix.triplet }}" \
+            --x-install-root="$VCPKG_ROOT/installed" \
+            --x-manifest-root="$GITHUB_WORKSPACE" \
+            --overlay-ports="$GITHUB_WORKSPACE/vcpkg/ports" \
+            --overlay-triplets="$GITHUB_WORKSPACE/vcpkg/triplets"
+
+      - name: Prebuild desktop dependencies (Unix)
+        if: matrix.platform == 'linux' || matrix.platform == 'macos' || matrix.platform == 'ios'
+        shell: bash
+        run: |
+          cmake --preset "${{ matrix.preset }}" \
+            -DENABLE_TESTS=OFF \
+            -DBUILD_TOOLS=OFF \
+            -DBUILD_ENGINE_API=OFF
+
+      - name: Prebuild desktop dependencies (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          cmake --preset "${{ matrix.preset }}" `
+            -DENABLE_TESTS=OFF `
+            -DBUILD_TOOLS=OFF `
+            -DBUILD_ENGINE_API=OFF
+
   analysis:
+    needs: vcpkg-dependencies
+    if: >-
+      always() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     name: Static analysis
     runs-on: ubuntu-24.04
     steps:
@@ -35,7 +225,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison clang clang-tidy clang-tools cppcheck \
+            autoconf automake bison clang clang-tidy clang-tools cppcheck mono-runtime \
             flex libegl1-mesa-dev libfontconfig1-dev libgl1-mesa-dev \
             libgles2-mesa-dev libomp-dev libtool libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build pkg-config
@@ -47,9 +237,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-analysis-${{ runner.os }}-${{ runner.arch }}-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
 
       - name: Setup vcpkg
         shell: bash
@@ -71,6 +261,12 @@ jobs:
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
+
+      - name: Configure binary cache
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Generate compilation database
         run: |
@@ -195,7 +391,11 @@ jobs:
 
   codeql:
     name: CodeQL C/C++
-    needs: analysis
+    needs: [analysis, vcpkg-dependencies]
+    if: >-
+      always() && needs.analysis.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -212,7 +412,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev mono-runtime \
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool libx11-dev \
             libxext-dev libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build \
             pkg-config
@@ -224,9 +424,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-codeql-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-codeql-${{ runner.os }}-${{ runner.arch }}-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
 
       - name: Setup vcpkg
         shell: bash
@@ -248,6 +448,12 @@ jobs:
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
+
+      - name: Configure binary cache
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Build for CodeQL extraction
         shell: bash
@@ -265,7 +471,12 @@ jobs:
 
   linux:
     name: Linux native
-    needs: [analysis, codeql]
+    needs: [analysis, codeql, vcpkg-dependencies]
+    if: >-
+      always() && needs.analysis.result == 'success' &&
+      needs.codeql.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -275,7 +486,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev mono-runtime \
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev libtool nasm ninja-build pkg-config
 
@@ -286,9 +497,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
 
       - name: Setup vcpkg
         shell: bash
@@ -310,6 +521,12 @@ jobs:
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
+
+      - name: Configure binary cache
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.18
@@ -336,7 +553,12 @@ jobs:
 
   windows:
     name: Windows native
-    needs: [analysis, codeql]
+    needs: [analysis, codeql, vcpkg-dependencies]
+    if: >-
+      always() && needs.analysis.result == 'success' &&
+      needs.codeql.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     runs-on: windows-2025
     steps:
       - name: Checkout
@@ -358,9 +580,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-
 
       - name: Setup vcpkg
         shell: pwsh
@@ -383,6 +605,12 @@ jobs:
           }
           & (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') version
 
+      - name: Configure binary cache
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pwsh -File .github/scripts/configure-vcpkg-binary-cache.ps1
+
       - name: Configure
         shell: pwsh
         run: |
@@ -404,7 +632,12 @@ jobs:
 
   android:
     name: Android APK
-    needs: [analysis, codeql]
+    needs: [analysis, codeql, vcpkg-dependencies]
+    if: >-
+      always() && needs.analysis.result == 'success' &&
+      needs.codeql.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     runs-on: ubuntu-24.04
     env:
       ANDROID_NDK_VERSION: 28.0.13004108
@@ -445,7 +678,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake bison libtool nasm ninja-build pkg-config
+          sudo apt-get install -y autoconf automake bison libtool mono-runtime nasm ninja-build pkg-config
 
       - name: Cache vcpkg
         uses: actions/cache@v4
@@ -454,9 +687,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-android-arm64-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-android-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-android-arm64-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-android-
 
       - name: Setup vcpkg
         shell: bash
@@ -478,6 +711,12 @@ jobs:
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
+
+      - name: Configure binary cache
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.18
@@ -498,14 +737,21 @@ jobs:
 
   macos:
     name: macOS app
-    needs: [analysis, codeql]
+    needs: [analysis, codeql, vcpkg-dependencies]
+    if: >-
+      always() && needs.analysis.result == 'success' &&
+      needs.codeql.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install build dependencies
-        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+        run: |
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          brew list mono >/dev/null 2>&1 || brew install mono
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -520,9 +766,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-
 
       - name: Setup vcpkg
         shell: bash
@@ -544,6 +790,12 @@ jobs:
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
+
+      - name: Configure binary cache
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.18
@@ -571,14 +823,21 @@ jobs:
 
   ios:
     name: iOS app
-    needs: [analysis, codeql]
+    needs: [analysis, codeql, vcpkg-dependencies]
+    if: >-
+      always() && needs.analysis.result == 'success' &&
+      needs.codeql.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result == 'success')
     runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install build dependencies
-        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+        run: |
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          brew list mono >/dev/null 2>&1 || brew install mono
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -593,9 +852,9 @@ jobs:
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
             ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
-          key: vcpkg-${{ runner.os }}-ios-arm64-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-ios-arm64-
+            vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-
 
       - name: Setup vcpkg
         shell: bash
@@ -617,6 +876,12 @@ jobs:
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
+
+      - name: Configure binary cache
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.18
