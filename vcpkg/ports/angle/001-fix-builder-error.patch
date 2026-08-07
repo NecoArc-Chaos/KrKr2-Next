@@ -14,7 +14,7 @@ index f4bb137f2..86495013b 100644
  // Windows.h needs to be included first
  #include <windows.h>
  
-@@ -19,6 +14,11 @@
+@@ -19,5 +14,10 @@
  #include <array>
  #include <sstream>
  
@@ -25,4 +25,3 @@ index f4bb137f2..86495013b 100644
 +
  namespace angle
  {
-

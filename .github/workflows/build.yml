@@ -39,6 +39,7 @@ jobs:
       VCPKG_BINARY_CACHE_MODE: readwrite
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         include:
           - platform: linux
@@ -77,6 +78,7 @@ jobs:
           $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '.devtools\vcpkg'
           $env:VCPKG_ROOT = $vcpkgRoot
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_FORCE_DOWNLOADED_BINARIES=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup Android
         if: matrix.platform == 'android'
@@ -124,13 +126,22 @@ jobs:
         shell: pwsh
         run: choco install nasm --no-progress --yes
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-
+
       - name: Cache vcpkg binary artifacts
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/${{ matrix.platform }}/release/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-
@@ -149,14 +160,14 @@ jobs:
         if: matrix.platform != 'windows'
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Configure binary cache (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: pwsh -File .github/scripts/configure-vcpkg-binary-cache.ps1
 
       - name: Prebuild Android dependencies
@@ -188,6 +199,13 @@ jobs:
             -DBUILD_TOOLS=OFF `
             -DBUILD_ENGINE_API=OFF
 
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+
   analysis:
     needs: vcpkg-dependencies
     if: >-
@@ -202,7 +220,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -215,13 +233,22 @@ jobs:
             libgles2-mesa-dev libomp-dev libtool libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build pkg-config
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
+
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/linux/debug/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
@@ -233,7 +260,7 @@ jobs:
       - name: Configure binary cache
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Generate compilation database
@@ -357,6 +384,13 @@ jobs:
             pvs-report.plog
             pvs-report.sarif
 
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+
   codeql:
     name: CodeQL C/C++
     needs: [analysis, vcpkg-dependencies]
@@ -372,7 +406,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -392,13 +426,22 @@ jobs:
             libxext-dev libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build \
             pkg-config
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
+
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/linux/release/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
@@ -410,7 +453,7 @@ jobs:
       - name: Configure binary cache
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Build for CodeQL extraction
@@ -426,6 +469,13 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: /language:c-cpp
+
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
 
   linux:
     name: Linux native
@@ -443,7 +493,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -455,13 +505,22 @@ jobs:
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev libtool nasm ninja-build pkg-config
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
+
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/linux/release/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-
@@ -473,7 +532,7 @@ jobs:
       - name: Configure binary cache
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -499,6 +558,13 @@ jobs:
           if-no-files-found: error
           path: out/linux/release/krkr2
 
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+
   windows:
     name: Windows native
     needs: [analysis, codeql, vcpkg-dependencies]
@@ -515,7 +581,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -530,18 +596,28 @@ jobs:
           $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '.devtools\vcpkg'
           $env:VCPKG_ROOT = $vcpkgRoot
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_FORCE_DOWNLOADED_BINARIES=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install build dependencies
         shell: pwsh
         run: choco install nasm --no-progress --yes
+
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-
 
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/windows/release/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-
@@ -553,7 +629,7 @@ jobs:
       - name: Configure binary cache
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: pwsh -File .github/scripts/configure-vcpkg-binary-cache.ps1
 
       - name: Configure
@@ -575,6 +651,13 @@ jobs:
           if-no-files-found: error
           path: out/windows/release/krkr2.exe
 
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-x64-windows-static-md-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+
   android:
     name: Android APK
     needs: [analysis, codeql, vcpkg-dependencies]
@@ -593,7 +676,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -632,12 +715,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y autoconf autoconf-archive automake bison libtool mono-complete nasm ninja-build pkg-config
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-android-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-android-
+
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-android-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
@@ -650,7 +741,7 @@ jobs:
       - name: Configure binary cache
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -670,6 +761,13 @@ jobs:
           if-no-files-found: error
           path: apps/flutter_app/build/app/outputs/flutter-apk/app-release.apk
 
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-android-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+
   macos:
     name: macOS app
     needs: [analysis, codeql, vcpkg-dependencies]
@@ -686,7 +784,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -705,13 +803,22 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-
+
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/macos/release/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-
@@ -723,7 +830,7 @@ jobs:
       - name: Configure binary cache
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -750,6 +857,13 @@ jobs:
           if-no-files-found: error
           path: krkr2-macos.zip
 
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-osx-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+
   ios:
     name: iOS app
     needs: [analysis, codeql, vcpkg-dependencies]
@@ -766,7 +880,7 @@ jobs:
       - name: Prepare Live2D SDK
         uses: ./.github/actions/prepare-live2d
         env:
-          gthub_token: ${{ secrets.gthub_token }}
+          gthub_token: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || '' }}
         with:
           token: ${{ env.gthub_token }}
 
@@ -785,13 +899,22 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Restore vcpkg source downloads
+        id: vcpkg_source_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-
+
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/.cache/vcpkg/binary-cache
-            ${{ github.workspace }}/.devtools/vcpkg/downloads
             ${{ github.workspace }}/.devtools/vcpkg/installed
+            ${{ github.workspace }}/out/ios/release/vcpkg_installed
           key: vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
           restore-keys: |
             vcpkg-binary-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-
@@ -803,7 +926,7 @@ jobs:
       - name: Configure binary cache
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -829,3 +952,10 @@ jobs:
           name: krkr2-ios
           if-no-files-found: error
           path: krkr2-ios.zip
+
+      - name: Save vcpkg source downloads
+        if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.devtools/vcpkg/downloads
+          key: vcpkg-downloads-v1-${{ runner.os }}-${{ runner.arch }}-arm64-ios-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}

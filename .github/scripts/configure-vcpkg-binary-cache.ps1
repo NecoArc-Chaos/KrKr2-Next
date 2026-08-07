@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $env:VCPKG_ROOT) { throw 'VCPKG_ROOT is required' }
 if (-not $env:VCPKG_DEFAULT_BINARY_CACHE) { throw 'VCPKG_DEFAULT_BINARY_CACHE is required' }
-if (-not $env:GITHUB_TOKEN) { throw 'GITHUB_TOKEN is required' }
+if (-not $env:VCPKG_NUGET_TOKEN) { throw 'VCPKG_NUGET_TOKEN is required' }
 if (-not $env:GITHUB_REPOSITORY_OWNER) { throw 'GITHUB_REPOSITORY_OWNER is required' }
 if (-not $env:GITHUB_ACTOR) { throw 'GITHUB_ACTOR is required' }
 
@@ -37,9 +37,9 @@ $LASTEXITCODE = 0
     -StorePasswordInClearText `
     -Name GitHubPackages `
     -UserName $env:GITHUB_ACTOR `
-    -Password $env:GITHUB_TOKEN
+    -Password $env:VCPKG_NUGET_TOKEN
 if ($mode -eq 'readwrite') {
-    & $nuget setapikey $env:GITHUB_TOKEN -Source $feed
+    & $nuget setapikey $env:VCPKG_NUGET_TOKEN -Source $feed
 }
 
 $sources = "clear;files,$($env:VCPKG_DEFAULT_BINARY_CACHE),$mode;nuget,$feed,$mode"

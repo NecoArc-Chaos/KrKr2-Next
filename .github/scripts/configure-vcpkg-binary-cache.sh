@@ -4,7 +4,7 @@ set -euo pipefail
 
 : "${VCPKG_ROOT:?VCPKG_ROOT is required}"
 : "${VCPKG_DEFAULT_BINARY_CACHE:?VCPKG_DEFAULT_BINARY_CACHE is required}"
-: "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
+: "${VCPKG_NUGET_TOKEN:?VCPKG_NUGET_TOKEN is required}"
 : "${GITHUB_REPOSITORY_OWNER:?GITHUB_REPOSITORY_OWNER is required}"
 : "${GITHUB_ACTOR:?GITHUB_ACTOR is required}"
 
@@ -46,9 +46,9 @@ mono "$nuget" sources add \
     -StorePasswordInClearText \
     -Name GitHubPackages \
     -UserName "${GITHUB_ACTOR}" \
-    -Password "$GITHUB_TOKEN"
+    -Password "$VCPKG_NUGET_TOKEN"
 if [ "$mode" = readwrite ]; then
-    mono "$nuget" setapikey "$GITHUB_TOKEN" -Source "$feed"
+    mono "$nuget" setapikey "$VCPKG_NUGET_TOKEN" -Source "$feed"
 fi
 
 printf 'VCPKG_BINARY_SOURCES=clear;files,%s,%s;nuget,%s,%s\n' \
