@@ -49,6 +49,7 @@
       "platform": "windows"
     },
     "ffmpeg",
+    "freetype",
     "fmt",
     "jxrlib",
     "libarchive",
