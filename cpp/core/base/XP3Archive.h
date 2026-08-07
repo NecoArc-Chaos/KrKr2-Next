@@ -150,7 +150,7 @@ private:
 
     static tjs_int32 ReadI32FromMem(const tjs_uint8 *mem);
 
-    static tjs_int64 ReadI64FromMem(const tjs_uint8 *mem);
+    static tjs_uint64 ReadI64FromMem(const tjs_uint8 *mem);
 };
 //---------------------------------------------------------------------------
 

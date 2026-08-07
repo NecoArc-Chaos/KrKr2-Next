@@ -5,11 +5,29 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cstddef>
+#include <limits>
 
 inline void *TVPMmapAlloc(size_t size) {
-    static const size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
+    const long rawPageSize = sysconf(_SC_PAGESIZE);
+    if(rawPageSize <= 0)
+        return nullptr;
+    const auto unsignedPageSize = static_cast<unsigned long long>(rawPageSize);
+    if(unsignedPageSize > static_cast<unsigned long long>(
+                              std::numeric_limits<size_t>::max()))
+        return nullptr;
+    const size_t pageSize = static_cast<size_t>(rawPageSize);
+    if(pageSize == 0)
+        return nullptr;
+    if(size > std::numeric_limits<size_t>::max() - sizeof(size_t))
+        return nullptr;
     size_t totalSize = size + sizeof(size_t);
-    totalSize = (totalSize + pageSize - 1) & ~(pageSize - 1);
+    const size_t remainder = totalSize % pageSize;
+    if(remainder != 0) {
+        const size_t padding = pageSize - remainder;
+        if(totalSize > std::numeric_limits<size_t>::max() - padding)
+            return nullptr;
+        totalSize += padding;
+    }
     void *ptr = mmap(nullptr, totalSize, PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANON, -1, 0);
     if(ptr == MAP_FAILED) return nullptr;

@@ -68,11 +68,28 @@ static std::mutex g_context_mutex;
 
 jobject krkr_GetApplicationContext() {
     std::lock_guard<std::mutex> lock(g_context_mutex);
-    return g_app_context;
+    if(!g_app_context)
+        return nullptr;
+    JNIEnv* env = krkr_GetJNIEnv();
+    if(!env)
+        return nullptr;
+    jobject local = env->NewLocalRef(g_app_context);
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if(local)
+            env->DeleteLocalRef(local);
+        return nullptr;
+    }
+    return local;
 }
 
-ANativeWindow* krkr_GetNativeWindow() {
+ANativeWindow* krkr_GetNativeWindow(uint32_t* out_width,
+                                    uint32_t* out_height) {
     std::lock_guard<std::mutex> lock(g_surface_mutex);
+    if(out_width)
+        *out_width = g_surface_width;
+    if(out_height)
+        *out_height = g_surface_height;
     if (g_native_window) {
         ANativeWindow_acquire(g_native_window);
     }
@@ -112,6 +129,11 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 extern "C" JNIEXPORT void JNICALL
 Java_org_github_krkr2_flutter_1engine_1bridge_FlutterEngineBridgePlugin_nativeSetSurface(
     JNIEnv* env, jobject /* thiz */, jobject surface, jint width, jint height) {
+
+    if(surface && (width <= 0 || height <= 0)) {
+        LOGE("nativeSetSurface: invalid dimensions (%d x %d)", width, height);
+        return;
+    }
 
     std::lock_guard<std::mutex> lock(g_surface_mutex);
 
@@ -171,7 +193,16 @@ Java_org_github_krkr2_flutter_1engine_1bridge_FlutterEngineBridgePlugin_nativeSe
 
     if (context) {
         g_app_context = env->NewGlobalRef(context);
-        LOGI("nativeSetApplicationContext: Application Context stored");
+        if(!g_app_context || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            if(g_app_context) {
+                env->DeleteGlobalRef(g_app_context);
+                g_app_context = nullptr;
+            }
+            LOGE("nativeSetApplicationContext: failed to create global ref");
+        } else {
+            LOGI("nativeSetApplicationContext: Application Context stored");
+        }
     } else {
         LOGW("nativeSetApplicationContext: null context passed");
     }

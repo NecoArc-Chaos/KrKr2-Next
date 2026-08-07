@@ -13,6 +13,7 @@ bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
   }
+  lifetime_token_ = std::make_shared<LifetimeState>();
 
   RECT frame = GetClientArea();
 
@@ -27,8 +28,17 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+  const std::weak_ptr<LifetimeState> lifetime = lifetime_token_;
+  const HWND window = GetHandle();
+  flutter_controller_->engine()->SetNextFrameCallback([lifetime, window]() {
+    const auto token = lifetime.lock();
+    if (!token) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(token->mutex);
+    if (token->alive && IsWindow(window) != FALSE) {
+      ShowWindow(window, SW_SHOWNORMAL);
+    }
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -40,6 +50,10 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (lifetime_token_) {
+    std::lock_guard<std::mutex> lock(lifetime_token_->mutex);
+    lifetime_token_->alive = false;
+  }
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -51,6 +65,10 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_DESTROY) {
+    return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -63,7 +81,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   switch (message) {
     case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
+      if (flutter_controller_ && flutter_controller_->engine()) {
+        flutter_controller_->engine()->ReloadSystemFonts();
+      }
       break;
   }
 

@@ -25,6 +25,9 @@ public:
     /// Get a JNIEnv for the current thread (attaches if needed).
     static JNIEnv* getEnv();
 
+    /// Detach the current thread when getEnv() attached it on our behalf.
+    static void detachCurrentThread();
+
     /// Convert jstring → std::string (UTF-8). Handles null safely.
     static std::string jstring2string(jstring str);
 

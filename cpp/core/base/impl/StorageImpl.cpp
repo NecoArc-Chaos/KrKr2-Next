@@ -15,6 +15,9 @@
 #include <cstring>
 #include <filesystem>
 #include <algorithm>
+#include <cstdlib>
+#include <cerrno>
+#include <limits>
 #include <set>
 #include <sys/stat.h>
 #include <vector>
@@ -45,7 +48,7 @@
 #ifdef WIN32
 #include <io.h>
 // posix io api
-inline unsigned int lseek64(int fileHandle, __int64 offset, int origin) {
+inline __int64 lseek64(int fileHandle, __int64 offset, int origin) {
     return _lseeki64(fileHandle, offset, origin);
 }
 // extern void *valloc(int n);
@@ -736,18 +739,21 @@ tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
         if(TVPCheckExistentLocalFile(localname)) {
         } else {
             ttstr dirpath = TVPLocalExtractFilePath(localname);
-            const tjs_char *p = dirpath.c_str();
-            tjs_int i = dirpath.GetLen();
-            if(p[i - 1] == TJS_W('/') || p[i - 1] == TJS_W('\\'))
-                i--;
-            dirpath = dirpath.SubString(0, i);
-            if(!TVPCheckExistentLocalFolder(dirpath) &&
-               !TVPCreateFolders(dirpath)) {
-                TVPThrowExceptionMessage(TVPCannotOpenStorage, origname);
+            if(!dirpath.IsEmpty()) {
+                const tjs_char *p = dirpath.c_str();
+                tjs_int i = dirpath.GetLen();
+                if(i > 0 &&
+                   (p[i - 1] == TJS_W('/') || p[i - 1] == TJS_W('\\')))
+                    i--;
+                dirpath = dirpath.SubString(0, i);
+                if(!dirpath.IsEmpty() && !TVPCheckExistentLocalFolder(dirpath) &&
+                   !TVPCreateFolders(dirpath)) {
+                    TVPThrowExceptionMessage(TVPCannotOpenStorage, origname);
+                }
             }
             //			_lastFileSystemChanged = true;
         }
-        MemBuffer = new tTVPMemoryStream();
+        MemBuffer = std::make_unique<tTVPMemoryStream>();
         return;
     }
 
@@ -760,7 +766,7 @@ tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
             rw |= O_RDWR | O_CREAT | O_TRUNC;
             break;
         case TJS_BS_APPEND:
-            rw |= O_APPEND;
+            rw |= O_WRONLY | O_CREAT | O_APPEND;
             break;
         case TJS_BS_UPDATE:
             rw |= O_RDWR;
@@ -776,13 +782,34 @@ tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
     Handle = _wopen(wpath.c_str(), rw, 0666);
     if(Handle < 0) {
         if(access == TJS_BS_APPEND || access == TJS_BS_UPDATE) {
-            Handle = _wopen(wpath.c_str(), O_RDONLY, 0666);
+            Handle = _wopen(wpath.c_str(), O_RDONLY | O_BINARY, 0666);
             if(Handle >= 0) {
-                tjs_uint64 size = tTVPLocalFileStream::GetSize();
+                tjs_uint64 size = 0;
+                try {
+                    size = tTVPLocalFileStream::GetSize();
+                } catch(...) {
+                    close(Handle);
+                    Handle = -1;
+                    throw;
+                }
                 if(size < 4 * 1024 * 1024) {
-                    MemBuffer = new tTVPMemoryStream();
-                    MemBuffer->SetSize(size);
-                    read(Handle, MemBuffer->GetInternalBuffer(), size);
+                    try {
+                        MemBuffer = std::make_unique<tTVPMemoryStream>();
+                        MemBuffer->SetSize(size);
+                        const auto read_size = read(
+                            Handle, MemBuffer->GetInternalBuffer(),
+                            static_cast<unsigned int>(size));
+                        if(read_size != static_cast<__int64>(size)) {
+                            MemBuffer.reset();
+                        } else if(access == TJS_BS_APPEND) {
+                            MemBuffer->SetPosition(size);
+                        }
+                    } catch(...) {
+                        MemBuffer.reset();
+                        close(Handle);
+                        Handle = -1;
+                        throw;
+                    }
                 }
                 close(Handle);
                 Handle = -1;
@@ -799,11 +826,32 @@ tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
             // use whole file writing
             Handle = open(holder, O_RDONLY, 0666);
             if(Handle >= 0) {
-                tjs_uint64 size = tTVPLocalFileStream::GetSize();
+                tjs_uint64 size = 0;
+                try {
+                    size = tTVPLocalFileStream::GetSize();
+                } catch(...) {
+                    close(Handle);
+                    Handle = -1;
+                    throw;
+                }
                 if(size < 4 * 1024 * 1024) { // only support file size <= 4M
-                    MemBuffer = new tTVPMemoryStream();
-                    MemBuffer->SetSize(size);
-                    read(Handle, MemBuffer->GetInternalBuffer(), size);
+                    try {
+                        MemBuffer = std::make_unique<tTVPMemoryStream>();
+                        MemBuffer->SetSize(size);
+                        const auto read_size = read(
+                            Handle, MemBuffer->GetInternalBuffer(),
+                            static_cast<unsigned int>(size));
+                        if(read_size != static_cast<ssize_t>(size)) {
+                            MemBuffer.reset();
+                        } else if(access == TJS_BS_APPEND) {
+                            MemBuffer->SetPosition(size);
+                        }
+                    } catch(...) {
+                        MemBuffer.reset();
+                        close(Handle);
+                        Handle = -1;
+                        throw;
+                    }
                 }
                 close(Handle);
                 Handle = -1;
@@ -824,15 +872,20 @@ bool TVPWriteDataToFile(const ttstr &filepath, const void *data,
 
 tTVPLocalFileStream::~tTVPLocalFileStream() {
     if(MemBuffer) {
-        if(!TVPWriteDataToFile(FileName, MemBuffer->GetInternalBuffer(),
-                               MemBuffer->GetSize())) {
-            delete MemBuffer;
-            ttstr filename(FileName);
-            FileName.~tTJSString();
-            free(this);
-            TVPThrowExceptionMessage(TJS_W("File Writing Error: %1"), filename);
+        bool written = false;
+        try {
+            written = TVPWriteDataToFile(FileName, MemBuffer->GetInternalBuffer(),
+                                         MemBuffer->GetSize());
+        } catch(...) {
+            written = false;
         }
-        delete MemBuffer;
+        if(!written) {
+            try {
+                spdlog::error("Failed to write buffered file stream: {}",
+                              FileName.AsStdString());
+            } catch(...) {
+            }
+        }
     }
     if(Handle >= 0) {
         close(Handle);
@@ -849,7 +902,10 @@ tjs_uint64 tTVPLocalFileStream::Seek(tjs_int64 offset, tjs_int whence) {
     if(MemBuffer) {
         return MemBuffer->Seek(offset, whence);
     }
-    return lseek64(Handle, offset, whence);
+    const auto position = lseek64(Handle, offset, whence);
+    if(position < 0)
+        TVPThrowExceptionMessage(TVPSeekError);
+    return static_cast<tjs_uint64>(position);
 }
 
 //---------------------------------------------------------------------------
@@ -857,7 +913,24 @@ tjs_uint tTVPLocalFileStream::Read(void *buffer, tjs_uint read_size) {
     if(MemBuffer) {
         return MemBuffer->Read(buffer, read_size);
     }
-    return read(Handle, buffer, read_size);
+    if(!buffer && read_size != 0)
+        return 0;
+    tjs_uint total = 0;
+    while(total < read_size) {
+        const auto result = read(Handle,
+                                 static_cast<unsigned char *>(buffer) + total,
+                                 read_size - total);
+        if(result > 0) {
+            total += static_cast<tjs_uint>(result);
+            continue;
+        }
+#ifndef _WIN32
+        if(result < 0 && errno == EINTR)
+            continue;
+#endif
+        break;
+    }
+    return total;
 }
 
 //---------------------------------------------------------------------------
@@ -865,7 +938,24 @@ tjs_uint tTVPLocalFileStream::Write(const void *buffer, tjs_uint write_size) {
     if(MemBuffer) {
         return MemBuffer->Write(buffer, write_size);
     }
-    return write(Handle, buffer, write_size);
+    if(!buffer && write_size != 0)
+        return 0;
+    tjs_uint total = 0;
+    while(total < write_size) {
+        const auto result = write(
+            Handle, static_cast<const unsigned char *>(buffer) + total,
+            write_size - total);
+        if(result > 0) {
+            total += static_cast<tjs_uint>(result);
+            continue;
+        }
+#ifndef _WIN32
+        if(result < 0 && errno == EINTR)
+            continue;
+#endif
+        break;
+    }
+    return total;
 }
 
 //---------------------------------------------------------------------------
@@ -873,7 +963,8 @@ void tTVPLocalFileStream::SetEndOfStorage() {
     if(MemBuffer) {
         return MemBuffer->SetEndOfStorage();
     }
-    lseek64(Handle, 0, SEEK_END);
+    if(lseek64(Handle, 0, SEEK_END) < 0)
+        TVPThrowExceptionMessage(TVPSeekError);
 }
 
 //---------------------------------------------------------------------------
@@ -882,10 +973,17 @@ tjs_uint64 tTVPLocalFileStream::GetSize() {
         return MemBuffer->GetSize();
     }
 
-    tjs_int64 curpos = lseek64(Handle, 0, SEEK_CUR);
-    tjs_uint64 ret = lseek64(Handle, 0, SEEK_END);
-    lseek64(Handle, curpos, SEEK_SET);
-    return ret;
+    const auto curpos = lseek64(Handle, 0, SEEK_CUR);
+    if(curpos < 0)
+        TVPThrowExceptionMessage(TVPSeekError);
+    const auto endpos = lseek64(Handle, 0, SEEK_END);
+    if(endpos < 0) {
+        lseek64(Handle, curpos, SEEK_SET);
+        TVPThrowExceptionMessage(TVPSeekError);
+    }
+    if(lseek64(Handle, curpos, SEEK_SET) < 0)
+        TVPThrowExceptionMessage(TVPSeekError);
+    return static_cast<tjs_uint64>(endpos);
 }
 /*
 this class provides COM's IStream adapter for tTJSBinaryStream
@@ -1101,20 +1199,37 @@ HRESULT STDMETHODCALLTYPE tTVPIStreamAdapter::Stat(STATSTG *pstatstg,
     // lost at this point.
 
     if(pstatstg) {
+        if(!Stream)
+            return E_FAIL;
+        tjs_uint64 streamSize = 0;
+        try {
+            streamSize = Stream->GetSize();
+        } catch(...) {
+            return E_FAIL;
+        }
         memset(pstatstg, 0, sizeof(*pstatstg));
 
         // pwcsName
         // this object's storage pointer does not have a name ...
         if(!(grfStatFlag & STATFLAG_NONAME)) {
             // anyway returns an empty string
-            pstatstg->pwcsName = (LPOLESTR)TJS_W("");
+#ifdef _WIN32
+            pstatstg->pwcsName = static_cast<LPOLESTR>(
+                ::CoTaskMemAlloc(sizeof(*pstatstg->pwcsName)));
+#else
+            pstatstg->pwcsName = static_cast<LPOLESTR>(
+                std::malloc(sizeof(*pstatstg->pwcsName)));
+#endif
+            if(!pstatstg->pwcsName)
+                return E_OUTOFMEMORY;
+            pstatstg->pwcsName[0] = 0;
         }
 
         // type
         pstatstg->type = STGTY_STREAM;
 
         // cbSize
-        pstatstg->cbSize.QuadPart = Stream->GetSize();
+        pstatstg->cbSize.QuadPart = streamSize;
 
         // mtime, ctime, atime unknown
 
@@ -1372,11 +1487,25 @@ void TVPReleaseCachedArchiveHandle(void *pointer, tTJSBinaryStream *stream);
 
 TArchiveStream::TArchiveStream(tTVPArchive *owner, tjs_uint64 off,
                                tjs_uint64 len) :
-    Owner(owner), StartPos(off), DataLength(len) {
+    Owner(owner), StartPos(off), DataLength(len), _instr(nullptr) {
+    if(!owner || len > static_cast<tjs_uint64>(
+                         std::numeric_limits<tjs_int64>::max()) ||
+       off > std::numeric_limits<tjs_uint64>::max() - len)
+        TVPThrowExceptionMessage(TVPReadError);
     Owner->AddRef();
-    _instr = TVPGetCachedArchiveHandle(Owner, Owner->ArchiveName);
-    CurrentPos = 0;
-    _instr->SetPosition(off);
+    try {
+        _instr = TVPGetCachedArchiveHandle(Owner, Owner->ArchiveName);
+        if(!_instr)
+            TVPThrowExceptionMessage(TVPReadError);
+        CurrentPos = 0;
+        _instr->SetPosition(off);
+    } catch(...) {
+        if(_instr)
+            TVPReleaseCachedArchiveHandle(Owner, _instr);
+        Owner->Release();
+        _instr = nullptr;
+        throw;
+    }
 }
 
 TArchiveStream::~TArchiveStream() {
@@ -1451,8 +1580,7 @@ static FILE *_fileopen(ttstr path) {
     std::string strpath = path.AsStdString();
     FILE *fp = fopen(strpath.c_str(), "wb");
     if(!fp) { // make dirs
-        path = TVPExtractStoragePath(path);
-        TVPCreateFolders(path);
+        TVPCreateFolders(TVPExtractStoragePath(path));
         fp = fopen(strpath.c_str(), "wb");
     }
     return fp;
@@ -1460,22 +1588,65 @@ static FILE *_fileopen(ttstr path) {
 
 bool TVPSaveStreamToFile(tTJSBinaryStream *st, tjs_uint64 offset,
                          tjs_uint64 size, const ttstr &outpath) {
+    if(!st)
+        return false;
+    tjs_uint64 origpos = 0;
+    try {
+        origpos = st->GetPosition();
+    } catch(...) {
+        return false;
+    }
     FILE *fp = _fileopen(outpath);
     if(!fp)
         return false;
-    tjs_uint64 origpos = st->GetPosition();
-    st->SetPosition(offset);
-    std::vector<char> buffer;
-    buffer.resize(2 * 1024 * 1024);
-    while(size > 0) {
-        unsigned int readsize = size > buffer.size() ? buffer.size() : size;
-        readsize = st->Read(&buffer.front(), readsize);
-        fwrite(&buffer.front(), 1, readsize, fp);
-        size -= readsize;
+    struct PositionGuard {
+        tTJSBinaryStream *stream;
+        tjs_uint64 position;
+        bool *restored;
+        void Restore() noexcept {
+            try {
+                stream->SetPosition(position);
+            } catch(...) {
+                if(restored)
+                    *restored = false;
+            }
+        }
+        ~PositionGuard() { Restore(); }
+    };
+
+    bool success = false;
+    bool restored = true;
+    {
+        PositionGuard guard{ st, origpos, &restored };
+        try {
+            st->SetPosition(offset);
+            std::vector<char> buffer(2 * 1024 * 1024);
+            while(size > 0) {
+                const tjs_uint readsize = static_cast<tjs_uint>(std::min<tjs_uint64>(
+                    size, buffer.size()));
+                const tjs_uint read = st->Read(buffer.data(), readsize);
+                if(read == 0 || read != readsize)
+                    break;
+                if(fwrite(buffer.data(), 1, read, fp) != read)
+                    break;
+                size -= read;
+            }
+            success = size == 0;
+        } catch(...) {
+            success = false;
+        }
     }
-    fclose(fp);
-    st->SetPosition(origpos);
-    return true;
+    const bool close_ok = fclose(fp) == 0;
+    const bool result = success && restored && close_ok;
+    if(!result) {
+        // The file was opened with truncation. Do not leave a partial output
+        // that looks like a successfully extracted file.
+        try {
+            TVPRemoveFile(outpath);
+        } catch(...) {
+        }
+    }
+    return result;
 }
 
 //---------------------------------------------------------------------------

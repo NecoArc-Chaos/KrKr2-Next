@@ -144,6 +144,8 @@ public:
      */
     bool HasNativeWindow() const { return native_window_ != nullptr; }
 
+    void* GetNativeWindow() const { return native_window_; }
+
     /**
      * @return the EGL WindowSurface for eglSwapBuffers (Android).
      */
@@ -195,6 +197,11 @@ public:
     uint32_t GetWidth()   const { return width_; }
     uint32_t GetHeight()  const { return height_; }
     bool     IsValid()    const { return context_ != EGL_NO_CONTEXT; }
+    bool     IsCurrent()  const {
+        return context_ != EGL_NO_CONTEXT &&
+               eglGetCurrentDisplay() == display_ &&
+               eglGetCurrentContext() == context_;
+    }
 
     EGLDisplay GetDisplay() const { return display_; }
     EGLSurface GetSurface() const { return surface_; }

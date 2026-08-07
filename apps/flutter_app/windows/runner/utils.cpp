@@ -6,6 +6,19 @@
 #include <windows.h>
 
 #include <iostream>
+#include <memory>
+
+namespace {
+struct LocalFreeDeleter {
+  using pointer = wchar_t**;
+
+  void operator()(wchar_t** value) const {
+    if (value != nullptr) {
+      ::LocalFree(value);
+    }
+  }
+};
+}  // namespace
 
 void CreateAndAttachConsole() {
   if (::AllocConsole()) {
@@ -28,6 +41,7 @@ std::vector<std::string> GetCommandLineArguments() {
   if (argv == nullptr) {
     return std::vector<std::string>();
   }
+  std::unique_ptr<wchar_t*, LocalFreeDeleter> argv_guard(argv);
 
   std::vector<std::string> command_line_arguments;
 
@@ -36,8 +50,6 @@ std::vector<std::string> GetCommandLineArguments() {
     command_line_arguments.push_back(Utf8FromUtf16(argv[i]));
   }
 
-  ::LocalFree(argv);
-
   return command_line_arguments;
 }
 
@@ -45,21 +57,19 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string) {
   if (utf16_string == nullptr) {
     return std::string();
   }
-  unsigned int target_length = ::WideCharToMultiByte(
+  const int target_length = ::WideCharToMultiByte(
       CP_UTF8, WC_ERR_INVALID_CHARS, utf16_string,
-      -1, nullptr, 0, nullptr, nullptr)
-    -1; // remove the trailing null character
-  int input_length = (int)wcslen(utf16_string);
-  std::string utf8_string;
-  if (target_length == 0 || target_length > utf8_string.max_size()) {
-    return utf8_string;
-  }
-  utf8_string.resize(target_length);
-  int converted_length = ::WideCharToMultiByte(
-      CP_UTF8, WC_ERR_INVALID_CHARS, utf16_string,
-      input_length, utf8_string.data(), target_length, nullptr, nullptr);
-  if (converted_length == 0) {
+      -1, nullptr, 0, nullptr, nullptr);
+  if (target_length <= 0) {
     return std::string();
   }
+  std::string utf8_string(static_cast<size_t>(target_length), '\0');
+  const int converted_length = ::WideCharToMultiByte(
+      CP_UTF8, WC_ERR_INVALID_CHARS, utf16_string,
+      -1, utf8_string.data(), target_length, nullptr, nullptr);
+  if (converted_length <= 0) {
+    return std::string();
+  }
+  utf8_string.resize(static_cast<size_t>(converted_length - 1));
   return utf8_string;
 }

@@ -133,11 +133,8 @@ static void SendDumps(std::string dumpdir, std::vector<std::string> allDumps,
                       std::string packageName, std::string versionStr) {
     // Dump upload will be re-implemented via platform-native HTTP or Flutter channel.
     spdlog::warn("SendDumps: HTTP upload is currently disabled.");
-    spdlog::warn("SendDumps: {} dump file(s) will be deleted without uploading.", allDumps.size());
-    for (const std::string &filename : allDumps) {
-        std::string fullpath = dumpdir + "/" + filename;
-        remove(fullpath.c_str());
-    }
+    spdlog::warn("SendDumps: preserving {} dump file(s) for later inspection.",
+                 allDumps.size());
 }
 
 void TVPCheckAndSendDumps(const std::string &dumpdir,
@@ -161,11 +158,7 @@ void TVPCheckAndSendDumps(const std::string &dumpdir,
         char buf[256];
         sprintf(buf, msgfmt.c_str(), allDumps.size());
         if(TVPShowSimpleMessageBoxYesNo(buf, title) == 0) {
-            static std::thread dumpthread;
-            dumpthread =
-                std::thread([dumpdir, allDumps, packageName, versionStr] {
-                    SendDumps(dumpdir, allDumps, packageName, versionStr);
-                });
+            SendDumps(dumpdir, allDumps, packageName, versionStr);
         } else {
             ClearDumps(dumpdir, allDumps);
         }

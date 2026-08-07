@@ -20,6 +20,7 @@ namespace krkr {
 
 static JavaVM* g_javaVM = nullptr;
 static std::mutex g_jvm_mutex;
+thread_local bool g_attached_by_helper = false;
 
 namespace {
 
@@ -49,7 +50,9 @@ jobject ResolveApplicationContext(JNIEnv* env) {
         return app;
     }
 
-    return env->NewLocalRef(appContextGlobal);
+    // krkr_GetApplicationContext() already returns a local reference while
+    // holding the context mutex.
+    return appContextGlobal;
 }
 
 jclass FindClassWithAppClassLoader(JNIEnv* env, const char* className) {
@@ -110,6 +113,17 @@ jclass FindClassWithAppClassLoader(JNIEnv* env, const char* className) {
         if (c == '/') c = '.';
     }
     jstring classNameJava = env->NewStringUTF(dottedName.c_str());
+    if (!classNameJava || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (classNameJava) {
+            env->DeleteLocalRef(classNameJava);
+        }
+        env->DeleteLocalRef(classLoaderClass);
+        env->DeleteLocalRef(classLoader);
+        env->DeleteLocalRef(contextClass);
+        env->DeleteLocalRef(appContext);
+        return nullptr;
+    }
     jobject classObject = env->CallObjectMethod(classLoader, loadClass, classNameJava);
 
     env->DeleteLocalRef(classNameJava);
@@ -164,11 +178,27 @@ JNIEnv* JniHelper::getEnv() {
             LOGE("JniHelper::getEnv: failed to attach thread");
             return nullptr;
         }
+        g_attached_by_helper = true;
     } else if (status != JNI_OK) {
         LOGE("JniHelper::getEnv: GetEnv failed with status %d", status);
         return nullptr;
     }
     return env;
+}
+
+void JniHelper::detachCurrentThread() {
+    if (!g_attached_by_helper)
+        return;
+
+    JavaVM* vm = getJavaVM();
+    if (vm) {
+        JNIEnv* env = nullptr;
+        const jint status =
+            vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (status == JNI_OK && vm->DetachCurrentThread() != JNI_OK)
+            LOGE("JniHelper::detachCurrentThread: failed to detach thread");
+    }
+    g_attached_by_helper = false;
 }
 
 std::string JniHelper::jstring2string(jstring str) {
@@ -178,7 +208,11 @@ std::string JniHelper::jstring2string(jstring str) {
     if (!env) return "";
 
     const char* chars = env->GetStringUTFChars(str, nullptr);
-    if (!chars) return "";
+    if (!chars) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return "";
+    }
 
     std::string result(chars);
     env->ReleaseStringUTFChars(str, chars);

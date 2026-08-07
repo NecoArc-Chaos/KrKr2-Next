@@ -1,6 +1,7 @@
 #include "AndroidUtils.h"
-#include <unzip.h>
+#include <minizip/unzip.h>
 #include "zlib.h"
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -21,6 +22,7 @@
 #include <queue>
 #include <unistd.h>
 #include <fcntl.h>
+#include <limits>
 #include <android/log.h>
 #include "TickCount.h"
 #include "StorageImpl.h"
@@ -56,23 +58,33 @@ static void updateMemoryInfo() {
                                           "updateMemoryInfo", "()V")) {
             methodInfo.env->CallStaticVoidMethod(methodInfo.classID,
                                                  methodInfo.methodID);
+            if(methodInfo.env->ExceptionCheck())
+                methodInfo.env->ExceptionClear();
             methodInfo.env->DeleteLocalRef(methodInfo.classID);
         }
 
         if(JniHelper::getStaticMethodInfo(methodInfo, KR2ActJavaPath,
                                           "getAvailMemory", "()J")) {
-            _availMemory = methodInfo.env->CallStaticLongMethod(
-                               methodInfo.classID, methodInfo.methodID) /
-                (1024 * 1024);
+            const jlong value = methodInfo.env->CallStaticLongMethod(
+                methodInfo.classID, methodInfo.methodID);
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+            } else {
+                _availMemory = static_cast<tjs_int>(value / (1024 * 1024));
+            }
             methodInfo.env->DeleteLocalRef(methodInfo.classID);
         }
 
         if(JniHelper::getStaticMethodInfo(methodInfo, KR2ActJavaPath,
                                           "getUsedMemory", "()J")) {
             // in kB
-            usedMemory = methodInfo.env->CallStaticLongMethod(
-                             methodInfo.classID, methodInfo.methodID) /
-                1024;
+            const jlong value = methodInfo.env->CallStaticLongMethod(
+                methodInfo.classID, methodInfo.methodID);
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+            } else {
+                usedMemory = static_cast<tjs_int>(value / 1024);
+            }
             methodInfo.env->DeleteLocalRef(methodInfo.classID);
         }
 
@@ -181,16 +193,22 @@ std::string TVPGetDeviceID() {
                                           "()Ljava/lang/String;")) {
             auto result = (jstring)methodInfo.env->CallStaticObjectMethod(
                 methodInfo.classID, methodInfo.methodID);
-            ret = JniHelper::jstring2string(result);
-            methodInfo.env->DeleteLocalRef(result);
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                if(result)
+                    methodInfo.env->DeleteLocalRef(result);
+                methodInfo.env->DeleteLocalRef(methodInfo.classID);
+                return ret;
+            }
+            ret = result ? JniHelper::jstring2string(result) : "";
+            if(result)
+                methodInfo.env->DeleteLocalRef(result);
             methodInfo.env->DeleteLocalRef(methodInfo.classID);
-            char *t = (char *)ret.c_str();
-            while(*t) {
-                if(*t == ':') {
-                    *t = '=';
+            for(char &ch : ret) {
+                if(ch == ':') {
+                    ch = '=';
                     break;
                 }
-                t++;
             }
         }
     }
@@ -208,58 +226,112 @@ static jobject GetKR2ActInstance() {
         jobject ret = methodInfo.env->CallStaticObjectMethod(
             methodInfo.classID, methodInfo.methodID);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
-        return ret;
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(ret)
+                methodInfo.env->DeleteLocalRef(ret);
+        } else if(ret) {
+            return ret;
+        }
     }
     // Fallback for Flutter mode: KR2Activity doesn't exist,
     // use the Application Context stored by the Flutter plugin.
-    // Create a new local ref so callers can safely DeleteLocalRef on it.
+    // krkr_GetApplicationContext() returns a local ref owned by this caller.
     jobject ctx = krkr_GetApplicationContext();
-    if (ctx) {
-        JNIEnv* env = JniHelper::getEnv();
-        if (env) {
-            return env->NewLocalRef(ctx);
-        }
-    }
+    if(ctx)
+        return ctx;
     __android_log_print(ANDROID_LOG_ERROR, "krkr2",
         "GetKR2ActInstance: no KR2Activity and no Application Context available");
     return 0;
 }
 
 static std::string GetApkStoragePath() {
-    JniMethodInfo methodInfo;
     jobject sInstance = GetKR2ActInstance();
+    if(!sInstance)
+        return "";
+
+    JniMethodInfo methodInfo;
     if(!JniHelper::getMethodInfo(methodInfo, "android/content/Context",
                                  "getApplicationInfo",
                                  "()Landroid/content/pm/ApplicationInfo;")) {
-        methodInfo.env->DeleteLocalRef(sInstance);
+        if(JNIEnv *env = JniHelper::getEnv())
+            env->DeleteLocalRef(sInstance);
         return "";
     }
+    JNIEnv *env = methodInfo.env;
     jobject ApplicationInfo =
-        methodInfo.env->CallObjectMethod(sInstance, methodInfo.methodID);
+        env->CallObjectMethod(sInstance, methodInfo.methodID);
+    env->DeleteLocalRef(methodInfo.classID);
+    env->DeleteLocalRef(sInstance);
+    if(env->ExceptionCheck() || !ApplicationInfo) {
+        env->ExceptionClear();
+        return "";
+    }
+
     jclass clsApplicationInfo =
-        methodInfo.env->FindClass("android/content/pm/ApplicationInfo");
-    jfieldID id_sourceDir = methodInfo.env->GetFieldID(
+        env->FindClass("android/content/pm/ApplicationInfo");
+    if(!clsApplicationInfo) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(ApplicationInfo);
+        return "";
+    }
+    jfieldID id_sourceDir = env->GetFieldID(
         clsApplicationInfo, "sourceDir", "Ljava/lang/String;");
-    methodInfo.env->DeleteLocalRef(sInstance);
-    return JniHelper::jstring2string(
-        (jstring)methodInfo.env->GetObjectField(ApplicationInfo, id_sourceDir));
+    if(!id_sourceDir) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(clsApplicationInfo);
+        env->DeleteLocalRef(ApplicationInfo);
+        return "";
+    }
+    jstring sourceDir =
+        (jstring)env->GetObjectField(ApplicationInfo, id_sourceDir);
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(clsApplicationInfo);
+        env->DeleteLocalRef(ApplicationInfo);
+        return "";
+    }
+    std::string ret = sourceDir ? JniHelper::jstring2string(sourceDir) : "";
+    if(sourceDir)
+        env->DeleteLocalRef(sourceDir);
+    env->DeleteLocalRef(clsApplicationInfo);
+    env->DeleteLocalRef(ApplicationInfo);
+    return ret;
 }
 
 static std::string GetPackageName() {
-    JniMethodInfo methodInfo;
     jobject sInstance = GetKR2ActInstance();
+    if(!sInstance)
+        return "";
+
+    JniMethodInfo methodInfo;
     if(!JniHelper::getMethodInfo(methodInfo, "android/content/ContextWrapper",
                                  "getPackageName", "()Ljava/lang/String;")) {
-        methodInfo.env->DeleteLocalRef(sInstance);
+        if(JNIEnv *env = JniHelper::getEnv())
+            env->DeleteLocalRef(sInstance);
         return "";
     }
-    return JniHelper::jstring2string((jstring)methodInfo.env->CallObjectMethod(
-        sInstance, methodInfo.methodID));
+    JNIEnv *env = methodInfo.env;
+    jstring packageName = (jstring)env->CallObjectMethod(
+        sInstance, methodInfo.methodID);
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(methodInfo.classID);
+        env->DeleteLocalRef(sInstance);
+        return "";
+    }
+    std::string ret = packageName ? JniHelper::jstring2string(packageName) : "";
+    if(packageName)
+        env->DeleteLocalRef(packageName);
+    env->DeleteLocalRef(methodInfo.classID);
+    env->DeleteLocalRef(sInstance);
+    return ret;
 }
 
 // from unzip.cpp
 #define FLAG_UTF8 (1 << 11)
 extern zlib_filefunc64_def TVPZlibFileFunc;
+static constexpr std::uint64_t kMaxZipEntrySize = 256ULL * 1024ULL * 1024ULL;
 class ZipFile {
     unzFile uf;
     bool utf8{};
@@ -273,39 +345,63 @@ public:
         }
     }
     bool Open(const char *filename) {
-        if((uf = unzOpen(filename)) == nullptr) {
+        if((uf = unzOpen64(filename)) == nullptr) {
             ttstr msg = filename;
             msg += TJS_W(" can't open.");
             TVPThrowExceptionMessage(msg.c_str());
             return false;
         }
         // UTF8¤Ê¥Õ¥¡¥¤¥ëÃû¤«¤É¤¦¤«¤ÎÅÐ¶¨¡£×î³õ¤Î¥Õ¥¡¥¤¥ë¤Ç›Q¤á¤ë
-        unzGoToFirstFile(uf);
-        unz_file_info file_info;
-        if(unzGetCurrentFileInfo(uf, &file_info, nullptr, 0, nullptr, 0,
-                                 nullptr, 0) == UNZ_OK) {
+        if(unzGoToFirstFile(uf) != UNZ_OK) {
+            unzClose(uf);
+            uf = nullptr;
+            return false;
+        }
+        unz_file_info64 file_info;
+        if(unzGetCurrentFileInfo64(uf, &file_info, nullptr, 0, nullptr, 0,
+                                   nullptr, 0) == UNZ_OK) {
             utf8 = (file_info.flag & FLAG_UTF8) != 0;
             return true;
         }
+        unzClose(uf);
+        uf = nullptr;
         return false;
     }
     bool GetData(std::vector<unsigned char> &buff, const char *filename) {
-        bool ret = false;
-        if(unzLocateFile(uf, filename, 0) == UNZ_OK) {
-            int result = unzOpenCurrentFile(uf);
-            if(result == UNZ_OK) {
-                unz_file_info info;
-                unzGetCurrentFileInfo(uf, &info, nullptr, 0, nullptr, 0,
-                                      nullptr, 0);
-                buff.resize(info.uncompressed_size);
-                unsigned int size =
-                    unzReadCurrentFile(uf, &buff[0], info.uncompressed_size);
-                if(size == info.uncompressed_size)
-                    ret = true;
-                unzCloseCurrentFile(uf);
-            }
+        if(!uf || !filename || unzLocateFile(uf, filename, 0) != UNZ_OK)
+            return false;
+        if(unzOpenCurrentFile(uf) != UNZ_OK)
+            return false;
+
+        unz_file_info64 info{};
+        if(unzGetCurrentFileInfo64(uf, &info, nullptr, 0, nullptr, 0,
+                                   nullptr, 0) != UNZ_OK ||
+           info.uncompressed_size > std::numeric_limits<size_t>::max() ||
+           info.uncompressed_size > kMaxZipEntrySize) {
+            unzCloseCurrentFile(uf);
+            return false;
         }
-        return ret;
+
+        const size_t expected = static_cast<size_t>(info.uncompressed_size);
+        buff.clear();
+        buff.reserve(expected);
+        std::vector<unsigned char> chunk(64 * 1024);
+        size_t total = 0;
+        bool ok = true;
+        while(total < expected) {
+            const unsigned int request = static_cast<unsigned int>(
+                std::min<size_t>(chunk.size(), expected - total));
+            const int read = unzReadCurrentFile(uf, chunk.data(), request);
+            if(read <= 0) {
+                ok = false;
+                break;
+            }
+            buff.insert(buff.end(), chunk.begin(), chunk.begin() + read);
+            total += static_cast<size_t>(read);
+        }
+        if(unzCloseCurrentFile(uf) != UNZ_OK)
+            ok = false;
+        return ok && total == expected;
     }
     tjs_int64 GetMD5InZip(const char *filename) {
         std::vector<unsigned char> buff;
@@ -313,7 +409,8 @@ public:
             return 0;
         md5_state_t state;
         md5_init(&state);
-        md5_append(&state, (const md5_byte_t *)&buff[0], buff.size());
+        if(!buff.empty())
+            md5_append(&state, (const md5_byte_t *)buff.data(), buff.size());
         union {
             tjs_int64 _s64[2];
             tjs_uint8 _u8[16];
@@ -328,28 +425,58 @@ private:
 
 std::string TVPGetDeviceLanguage() {
     // use pure jni to avoid java code
-    JniMethodInfo methodInfo;
-    if(!JniHelper::getStaticMethodInfo(methodInfo, "java/util/Locale",
+    JniMethodInfo localeInfo;
+    if(!JniHelper::getStaticMethodInfo(localeInfo, "java/util/Locale",
                                        "getDefault", "()Ljava/util/Locale;"))
         return "";
-    jobject LocaleObj = methodInfo.env->CallStaticObjectMethod(
-        methodInfo.classID, methodInfo.methodID);
-    if(!JniHelper::getMethodInfo(methodInfo, "java/util/Locale", "getLanguage",
-                                 "()Ljava/lang/String;"))
+    JNIEnv *env = localeInfo.env;
+    jobject LocaleObj = env->CallStaticObjectMethod(localeInfo.classID,
+                                                    localeInfo.methodID);
+    env->DeleteLocalRef(localeInfo.classID);
+    if(env->ExceptionCheck() || !LocaleObj) {
+        env->ExceptionClear();
         return "";
-    jstring languageID = (jstring)methodInfo.env->CallObjectMethod(
-        LocaleObj, methodInfo.methodID);
-    methodInfo.env->DeleteLocalRef(methodInfo.classID);
-    return JniHelper::jstring2string(languageID);
+    }
+    JniMethodInfo languageInfo;
+    if(!JniHelper::getMethodInfo(languageInfo, "java/util/Locale",
+                                  "getLanguage", "()Ljava/lang/String;")) {
+        env->DeleteLocalRef(LocaleObj);
+        return "";
+    }
+    jstring languageID = (jstring)env->CallObjectMethod(LocaleObj,
+                                                       languageInfo.methodID);
+    env->DeleteLocalRef(languageInfo.classID);
+    env->DeleteLocalRef(LocaleObj);
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if(languageID)
+            env->DeleteLocalRef(languageID);
+        return "";
+    }
+    std::string ret = languageID ? JniHelper::jstring2string(languageID) : "";
+    if(languageID)
+        env->DeleteLocalRef(languageID);
+    return ret;
 }
 
 std::string TVPGetPackageVersionString() {
     JniMethodInfo methodInfo;
     if(JniHelper::getStaticMethodInfo(methodInfo, KR2ActJavaPath, "GetVersion",
                                       "()Ljava/lang/String;")) {
-        return JniHelper::jstring2string(
-            (jstring)methodInfo.env->CallStaticObjectMethod(
-                methodInfo.classID, methodInfo.methodID));
+        JNIEnv *env = methodInfo.env;
+        jstring version = (jstring)env->CallStaticObjectMethod(
+            methodInfo.classID, methodInfo.methodID);
+        env->DeleteLocalRef(methodInfo.classID);
+        if(env->ExceptionCheck()) {
+            env->ExceptionClear();
+            if(version)
+                env->DeleteLocalRef(version);
+            return "";
+        }
+        std::string ret = version ? JniHelper::jstring2string(version) : "";
+        if(version)
+            env->DeleteLocalRef(version);
+        return ret;
     }
     return "";
 }
@@ -370,27 +497,54 @@ static std::string File_getAbsolutePath(jobject FileObj) {
     JniMethodInfo methodInfo;
     if(!JniHelper::getMethodInfo(methodInfo, "java/io/File", "exists", "()Z"))
         return "";
-    if(!methodInfo.env->CallBooleanMethod(FileObj, methodInfo.methodID))
+    JNIEnv *env = methodInfo.env;
+    const bool exists = env->CallBooleanMethod(FileObj, methodInfo.methodID);
+    env->DeleteLocalRef(methodInfo.classID);
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return "";
+    }
+    if(!exists)
         return "";
     if(!JniHelper::getMethodInfo(methodInfo, "java/io/File", "getAbsolutePath",
                                  "()Ljava/lang/String;"))
         return "";
-    jstring path =
-        (jstring)methodInfo.env->CallObjectMethod(FileObj, methodInfo.methodID);
-    std::string ret = JniHelper::jstring2string(path);
+    env = methodInfo.env;
+    jstring path = (jstring)env->CallObjectMethod(FileObj, methodInfo.methodID);
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(methodInfo.classID);
+        return "";
+    }
+    std::string ret = path ? JniHelper::jstring2string(path) : "";
+    if(path)
+        env->DeleteLocalRef(path);
+    env->DeleteLocalRef(methodInfo.classID);
     return ret;
 }
 
 static std::string GetInternalStoragePath() {
     jobject sInstance = GetKR2ActInstance();
+    if(!sInstance)
+        return "";
     JniMethodInfo methodInfo;
     if(!JniHelper::getMethodInfo(methodInfo, "android/content/ContextWrapper",
                                  "getFilesDir", "()Ljava/io/File;")) {
+        if(JNIEnv *env = JniHelper::getEnv())
+            env->DeleteLocalRef(sInstance);
         return "";
     }
-    jobject FileObj =
-        methodInfo.env->CallObjectMethod(sInstance, methodInfo.methodID);
-    return File_getAbsolutePath(FileObj);
+    JNIEnv *env = methodInfo.env;
+    jobject FileObj = env->CallObjectMethod(sInstance, methodInfo.methodID);
+    env->DeleteLocalRef(methodInfo.classID);
+    env->DeleteLocalRef(sInstance);
+    if(env->ExceptionCheck() || !FileObj) {
+        env->ExceptionClear();
+        return "";
+    }
+    std::string ret = File_getAbsolutePath(FileObj);
+    env->DeleteLocalRef(FileObj);
+    return ret;
 }
 
 std::string Android_GetDumpStoragePath() {
@@ -399,12 +553,16 @@ std::string Android_GetDumpStoragePath() {
 
 static int InsertFilepathInto(JNIEnv *env, std::vector<std::string> &vec,
                               jobjectArray FileObjs) {
+    if(!env || !FileObjs)
+        return 0;
     int count = env->GetArrayLength(FileObjs);
     for(int i = 0; i < count; ++i) {
         jobject FileObj = env->GetObjectArrayElement(FileObjs, i);
         std::string path = File_getAbsolutePath(FileObj);
         if(!path.empty())
             vec.emplace_back(path);
+        if(FileObj)
+            env->DeleteLocalRef(FileObj);
     }
     return count;
 }
@@ -413,6 +571,8 @@ static int GetExternalStoragePath(std::vector<std::string> &ret) {
     int count = 0;
     JniMethodInfo methodInfo;
     jobject sInstance = GetKR2ActInstance();
+    if(!sInstance)
+        return 0;
     // 	if (JniHelper::getMethodInfo(methodInfo,
     // "android/content/Context", "getExternalMediaDirs",
     // "()[Ljava/io/File;")) { 		jobjectArray FileObjs =
@@ -425,24 +585,44 @@ static int GetExternalStoragePath(std::vector<std::string> &ret) {
                                 "(Ljava/lang/String;)[Ljava/io/File;")) {
         jobjectArray FileObjs = (jobjectArray)methodInfo.env->CallObjectMethod(
             sInstance, methodInfo.methodID, nullptr);
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            FileObjs = nullptr;
+        }
         if(FileObjs)
             count += InsertFilepathInto(methodInfo.env, ret, FileObjs);
+        if(FileObjs)
+            methodInfo.env->DeleteLocalRef(FileObjs);
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     } else if(JniHelper::getMethodInfo(methodInfo, "android/content/Context",
                                        "getExternalFilesDir",
                                        "(Ljava/lang/String;)Ljava/io/File;")) {
         jobject FileObj = methodInfo.env->CallObjectMethod(
             sInstance, methodInfo.methodID, nullptr);
-        if(FileObj) {
-            ret.emplace_back(File_getAbsolutePath(FileObj));
-            ++count;
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            FileObj = nullptr;
         }
+        if(FileObj) {
+            std::string path = File_getAbsolutePath(FileObj);
+            if(!path.empty())
+                ret.emplace_back(path);
+            methodInfo.env->DeleteLocalRef(FileObj);
+            if(!path.empty())
+                ++count;
+        }
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
+    if(JNIEnv *env = JniHelper::getEnv())
+        env->DeleteLocalRef(sInstance);
     return count;
 }
 
 std::vector<std::string> TVPGetAppStoragePath() {
     std::vector<std::string> ret;
-    ret.emplace_back(GetInternalStoragePath());
+    const std::string internal = GetInternalStoragePath();
+    if(!internal.empty())
+        ret.emplace_back(internal);
     GetExternalStoragePath(ret);
     return ret;
 }
@@ -450,20 +630,38 @@ std::vector<std::string> TVPGetAppStoragePath() {
 std::vector<std::string> TVPGetDriverPath() {
     std::vector<std::string> ret;
     jobject sInstance = GetKR2ActInstance();
+    if(!sInstance)
+        return ret;
     JniMethodInfo methodInfo;
     if(JniHelper::getMethodInfo(methodInfo, KR2ActJavaPath, "getStoragePath",
                                 "()[Ljava/lang/String;")) {
         jobjectArray PathObjs = (jobjectArray)methodInfo.env->CallObjectMethod(
             sInstance, methodInfo.methodID);
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            PathObjs = nullptr;
+        }
         if(PathObjs) {
             int count = methodInfo.env->GetArrayLength(PathObjs);
             for(int i = 0; i < count; ++i) {
                 jstring path =
                     (jstring)methodInfo.env->GetObjectArrayElement(PathObjs, i);
+                if(path) {
+                    std::string value = JniHelper::jstring2string(path);
+                    if(!value.empty())
+                        ret.emplace_back(value);
+                }
                 if(path)
-                    ret.emplace_back(JniHelper::jstring2string(path));
+                    methodInfo.env->DeleteLocalRef(path);
             }
+            methodInfo.env->DeleteLocalRef(PathObjs);
         }
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
+    }
+
+    if(sInstance) {
+        if(JNIEnv *env = JniHelper::getEnv())
+            env->DeleteLocalRef(sInstance);
     }
 
     if(!ret.empty())
@@ -564,30 +762,81 @@ using namespace kr2android;
 
 int TVPShowSimpleMessageBox(const char *pszText, const char *pszTitle,
                             unsigned int nButton, const char **btnText) {
+    if(nButton > 0 && btnText == nullptr)
+        return -1;
     JniMethodInfo methodInfo;
     if(JniHelper::getStaticMethodInfo(
            methodInfo, "org/tvp/kirikiri2/KR2Activity", "ShowMessageBox",
            "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/"
            "String;)V")) {
-        MsgBoxRet = -2;
-        jstring jstrTitle = methodInfo.env->NewStringUTF(pszTitle);
-        jstring jstrText = methodInfo.env->NewStringUTF(pszText);
+        {
+            std::lock_guard<std::mutex> lk(MessageBoxLock);
+            MsgBoxRet = -2;
+            MessageBoxRetText.clear();
+        }
+        jstring jstrTitle = methodInfo.env->NewStringUTF(pszTitle ? pszTitle : "");
+        jstring jstrText = methodInfo.env->NewStringUTF(pszText ? pszText : "");
         jclass strcls = methodInfo.env->FindClass("java/lang/String");
+        if(!jstrTitle || !jstrText || !strcls ||
+           methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(jstrTitle) methodInfo.env->DeleteLocalRef(jstrTitle);
+            if(jstrText) methodInfo.env->DeleteLocalRef(jstrText);
+            if(strcls) methodInfo.env->DeleteLocalRef(strcls);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return -1;
+        }
         jobjectArray btns =
             methodInfo.env->NewObjectArray(nButton, strcls, nullptr);
+        methodInfo.env->DeleteLocalRef(strcls);
+        if(!btns || methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(btns) methodInfo.env->DeleteLocalRef(btns);
+            methodInfo.env->DeleteLocalRef(jstrTitle);
+            methodInfo.env->DeleteLocalRef(jstrText);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return -1;
+        }
         for(unsigned int i = 0; i < nButton; ++i) {
             jstring jstrBtn = methodInfo.env->NewStringUTF(btnText[i]);
+            if(!jstrBtn || methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                if(jstrBtn) methodInfo.env->DeleteLocalRef(jstrBtn);
+                methodInfo.env->DeleteLocalRef(jstrTitle);
+                methodInfo.env->DeleteLocalRef(jstrText);
+                methodInfo.env->DeleteLocalRef(btns);
+                methodInfo.env->DeleteLocalRef(methodInfo.classID);
+                return -1;
+            }
             methodInfo.env->SetObjectArrayElement(btns, i, jstrBtn);
             methodInfo.env->DeleteLocalRef(jstrBtn);
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                methodInfo.env->DeleteLocalRef(jstrTitle);
+                methodInfo.env->DeleteLocalRef(jstrText);
+                methodInfo.env->DeleteLocalRef(btns);
+                methodInfo.env->DeleteLocalRef(methodInfo.classID);
+                return -1;
+            }
         }
 
         methodInfo.env->CallStaticVoidMethod(
             methodInfo.classID, methodInfo.methodID, jstrTitle, jstrText, btns);
+        const bool callFailed = methodInfo.env->ExceptionCheck();
+        if(callFailed)
+            methodInfo.env->ExceptionClear();
 
         methodInfo.env->DeleteLocalRef(jstrTitle);
         methodInfo.env->DeleteLocalRef(jstrText);
         methodInfo.env->DeleteLocalRef(btns);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
+
+        if(callFailed) {
+            std::lock_guard<std::mutex> lk(MessageBoxLock);
+            MsgBoxRet = -1;
+            MessageBoxCond.notify_all();
+            return -1;
+        }
 
         std::unique_lock<std::mutex> lk(MessageBoxLock);
         while(MsgBoxRet == -2) {
@@ -615,7 +864,7 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeOnInputBoxResult(
     JNIEnv* /* env */, jclass /* clazz */, jint result, jstring text) {
     std::lock_guard<std::mutex> lk(MessageBoxLock);
     MsgBoxRet = static_cast<int>(result);
-    MessageBoxRetText = JniHelper::jstring2string(text);
+    MessageBoxRetText = text ? JniHelper::jstring2string(text) : "";
     MessageBoxCond.notify_all();
 }
 #endif
@@ -632,13 +881,17 @@ int TVPShowSimpleMessageBox(const ttstr &text, const ttstr &caption,
         btnTextHold.emplace_back(btn.AsStdString());
         btnText.emplace_back(btnTextHold.back().c_str());
     }
-    return TVPShowSimpleMessageBox(pszText, pszTitle, btnText.size(),
-                                   &btnText[0]);
+    return TVPShowSimpleMessageBox(
+        pszText, pszTitle, btnText.size(),
+        btnText.empty() ? nullptr : btnText.data());
 }
 
 int TVPShowSimpleInputBox(ttstr &text, const ttstr &caption,
                           const ttstr &prompt,
                           const std::vector<ttstr> &vecButtons) {
+    if(vecButtons.size() >
+       static_cast<size_t>(std::numeric_limits<jsize>::max()))
+        return -1;
     JniMethodInfo methodInfo;
     if(JniHelper::getStaticMethodInfo(
            methodInfo, "org/tvp/kirikiri2/KR2Activity", "ShowInputBox",
@@ -653,25 +906,79 @@ int TVPShowSimpleInputBox(ttstr &text, const ttstr &caption,
         jstring jstrPrompt =
             methodInfo.env->NewStringUTF(prompt.AsStdString().c_str());
         jclass strcls = methodInfo.env->FindClass("java/lang/String");
+        if(!jstrTitle || !jstrText || !jstrPrompt || !strcls ||
+           methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(jstrTitle) methodInfo.env->DeleteLocalRef(jstrTitle);
+            if(jstrText) methodInfo.env->DeleteLocalRef(jstrText);
+            if(jstrPrompt) methodInfo.env->DeleteLocalRef(jstrPrompt);
+            if(strcls) methodInfo.env->DeleteLocalRef(strcls);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return -1;
+        }
         jobjectArray btns =
-            methodInfo.env->NewObjectArray(vecButtons.size(), strcls, nullptr);
+            methodInfo.env->NewObjectArray(
+                static_cast<jsize>(vecButtons.size()), strcls, nullptr);
+        methodInfo.env->DeleteLocalRef(strcls);
+        if(!btns || methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(btns) methodInfo.env->DeleteLocalRef(btns);
+            methodInfo.env->DeleteLocalRef(jstrTitle);
+            methodInfo.env->DeleteLocalRef(jstrText);
+            methodInfo.env->DeleteLocalRef(jstrPrompt);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return -1;
+        }
         for(unsigned int i = 0; i < vecButtons.size(); ++i) {
             jstring jstrBtn = methodInfo.env->NewStringUTF(
                 vecButtons[i].AsStdString().c_str());
+            if(!jstrBtn || methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                if(jstrBtn) methodInfo.env->DeleteLocalRef(jstrBtn);
+                methodInfo.env->DeleteLocalRef(jstrTitle);
+                methodInfo.env->DeleteLocalRef(jstrText);
+                methodInfo.env->DeleteLocalRef(jstrPrompt);
+                methodInfo.env->DeleteLocalRef(btns);
+                methodInfo.env->DeleteLocalRef(methodInfo.classID);
+                return -1;
+            }
             methodInfo.env->SetObjectArrayElement(btns, i, jstrBtn);
             methodInfo.env->DeleteLocalRef(jstrBtn);
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                methodInfo.env->DeleteLocalRef(jstrTitle);
+                methodInfo.env->DeleteLocalRef(jstrText);
+                methodInfo.env->DeleteLocalRef(jstrPrompt);
+                methodInfo.env->DeleteLocalRef(btns);
+                methodInfo.env->DeleteLocalRef(methodInfo.classID);
+                return -1;
+            }
         }
 
-        MsgBoxRet = -2;
+        {
+            std::lock_guard<std::mutex> lk(MessageBoxLock);
+            MsgBoxRet = -2;
+            MessageBoxRetText.clear();
+        }
         methodInfo.env->CallStaticVoidMethod(methodInfo.classID,
                                              methodInfo.methodID, jstrTitle,
                                              jstrPrompt, jstrText, btns);
+        const bool callFailed = methodInfo.env->ExceptionCheck();
+        if(callFailed)
+            methodInfo.env->ExceptionClear();
 
         methodInfo.env->DeleteLocalRef(jstrTitle);
         methodInfo.env->DeleteLocalRef(jstrText);
         methodInfo.env->DeleteLocalRef(jstrPrompt);
         methodInfo.env->DeleteLocalRef(btns);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
+
+        if(callFailed) {
+            std::lock_guard<std::mutex> lk(MessageBoxLock);
+            MsgBoxRet = -1;
+            MessageBoxCond.notify_all();
+            return -1;
+        }
 
         std::unique_lock<std::mutex> lk(MessageBoxLock);
         while(MsgBoxRet == -2) {
@@ -754,7 +1061,12 @@ static void _processEvents(float) {
         }
     }
     while(q) {
-        q->func();
+        try {
+            q->func();
+        } catch(...) {
+            __android_log_print(ANDROID_LOG_ERROR, "krkr2",
+                                "Android event callback threw an exception");
+        }
         _eventQueueNode *nq = q->next;
         delete q;
         q = nq;
@@ -793,15 +1105,30 @@ void TVPControlAdDialog(int adType, int arg1, int arg2) {
                                       "MessageController", "(III)V")) {
         methodInfo.env->CallStaticVoidMethod(
             methodInfo.classID, methodInfo.methodID, adType, arg1, arg2);
+        if(methodInfo.env->ExceptionCheck())
+            methodInfo.env->ExceptionClear();
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
 }
 
 static int _GetAndroidSDKVersion() {
     JNIEnv *pEnv = JniHelper::getEnv();
+    if(!pEnv)
+        return 0;
     jclass classID = pEnv->FindClass("android/os/Build$VERSION");
+    if(!classID) {
+        pEnv->ExceptionClear();
+        return 0;
+    }
     jfieldID idSDK_INT = pEnv->GetStaticFieldID(classID, "SDK_INT", "I");
-    return pEnv->GetStaticIntField(classID, idSDK_INT);
+    if(!idSDK_INT) {
+        pEnv->ExceptionClear();
+        pEnv->DeleteLocalRef(classID);
+        return 0;
+    }
+    const int version = pEnv->GetStaticIntField(classID, idSDK_INT);
+    pEnv->DeleteLocalRef(classID);
+    return version;
 }
 static int GetAndroidSDKVersion() {
     static int result = _GetAndroidSDKVersion();
@@ -826,19 +1153,39 @@ bool TVPCheckStartupPath(const std::string &path) {
            methodInfo, "org/tvp/kirikiri2/KR2Activity", "isWritableNormalOrSaf",
            "(Ljava/lang/String;)Z")) {
         jstring jstrPath = methodInfo.env->NewStringUTF(parent.c_str());
-        success = methodInfo.env->CallStaticBooleanMethod(
-            methodInfo.classID, methodInfo.methodID, jstrPath);
-        methodInfo.env->DeleteLocalRef(jstrPath);
+        if(jstrPath && !methodInfo.env->ExceptionCheck()) {
+            success = methodInfo.env->CallStaticBooleanMethod(
+                methodInfo.classID, methodInfo.methodID, jstrPath);
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                success = false;
+            }
+        } else {
+            methodInfo.env->ExceptionClear();
+        }
+        if(jstrPath)
+            methodInfo.env->DeleteLocalRef(jstrPath);
         if(success) {
             parent += "/savedata";
             if(!TVPCheckExistentLocalFolder(parent)) {
                 TVPCreateFolders(parent);
             }
             jstrPath = methodInfo.env->NewStringUTF(parent.c_str());
-            success = methodInfo.env->CallStaticBooleanMethod(
-                methodInfo.classID, methodInfo.methodID, jstrPath);
-            methodInfo.env->DeleteLocalRef(jstrPath);
+            if(jstrPath && !methodInfo.env->ExceptionCheck()) {
+                success = methodInfo.env->CallStaticBooleanMethod(
+                    methodInfo.classID, methodInfo.methodID, jstrPath);
+                if(methodInfo.env->ExceptionCheck()) {
+                    methodInfo.env->ExceptionClear();
+                    success = false;
+                }
+            } else {
+                methodInfo.env->ExceptionClear();
+                success = false;
+            }
+            if(jstrPath)
+                methodInfo.env->DeleteLocalRef(jstrPath);
         }
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
 
     if(!success) {
@@ -884,16 +1231,37 @@ bool TVPCheckStartupPath(const std::string &path) {
 
 // POSIX fallback: recursively create directories
 static bool _posix_mkdirs(const std::string &path) {
-    if (path.empty()) return false;
-    std::string tmp = path;
-    for (size_t i = 1; i < tmp.size(); ++i) {
-        if (tmp[i] == '/') {
-            tmp[i] = '\0';
-            mkdir(tmp.c_str(), 0755);
-            tmp[i] = '/';
-        }
+    if(path.empty())
+        return false;
+
+    std::string current;
+    size_t pos = 0;
+    if(path[0] == '/') {
+        current = "/";
+        while(pos < path.size() && path[pos] == '/')
+            ++pos;
     }
-    return mkdir(tmp.c_str(), 0755) == 0 || errno == EEXIST;
+
+    while(pos < path.size()) {
+        while(pos < path.size() && path[pos] == '/')
+            ++pos;
+        if(pos == path.size())
+            break;
+        const size_t end = path.find('/', pos);
+        const size_t length = end == std::string::npos ? path.size() - pos
+                                                       : end - pos;
+        if(!current.empty() && current.back() != '/')
+            current.push_back('/');
+        current.append(path, pos, length);
+
+        if(mkdir(current.c_str(), 0755) != 0 && errno != EEXIST)
+            return false;
+        struct stat info{};
+        if(stat(current.c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
+            return false;
+        pos = end == std::string::npos ? path.size() : end;
+    }
+    return !current.empty();
 }
 
 bool TVPCreateFolders(const ttstr &folder) {
@@ -903,8 +1271,19 @@ bool TVPCreateFolders(const ttstr &folder) {
            "(Ljava/lang/String;)Z")) {
         jstring jstr =
             methodInfo.env->NewStringUTF(folder.AsStdString().c_str());
+        if(!jstr || methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(jstr)
+                methodInfo.env->DeleteLocalRef(jstr);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return false;
+        }
         bool ret = methodInfo.env->CallStaticBooleanMethod(
             methodInfo.classID, methodInfo.methodID, jstr);
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            ret = false;
+        }
         methodInfo.env->DeleteLocalRef(jstr);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
         return ret;
@@ -919,18 +1298,40 @@ static bool TVPWriteDataToFileJava(const std::string &filename,
     if(JniHelper::getStaticMethodInfo(methodInfo,
                                       "org/tvp/kirikiri2/KR2Activity",
                                       "WriteFile", "(Ljava/lang/String;[B)Z")) {
+        if(size > static_cast<unsigned int>(std::numeric_limits<jsize>::max())) {
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return false;
+        }
         bool ret = false;
-        int retry = 3;
-        do {
+        for(int retry = 0; retry < 3; ++retry) {
             jstring jstr = methodInfo.env->NewStringUTF(filename.c_str());
-            jbyteArray arr = methodInfo.env->NewByteArray(size);
-            methodInfo.env->SetByteArrayRegion(arr, 0, size, (jbyte *)data);
-            ret = methodInfo.env->CallStaticBooleanMethod(
-                methodInfo.classID, methodInfo.methodID, jstr, arr);
+            jbyteArray arr = methodInfo.env->NewByteArray(static_cast<jsize>(size));
+            if(!jstr || !arr) {
+                if(arr)
+                    methodInfo.env->DeleteLocalRef(arr);
+                if(jstr)
+                    methodInfo.env->DeleteLocalRef(jstr);
+                methodInfo.env->ExceptionClear();
+                break;
+            }
+            if(size > 0)
+                methodInfo.env->SetByteArrayRegion(
+                    arr, 0, static_cast<jsize>(size),
+                    static_cast<const jbyte *>(data));
+            if(!methodInfo.env->ExceptionCheck()) {
+                ret = methodInfo.env->CallStaticBooleanMethod(
+                    methodInfo.classID, methodInfo.methodID, jstr, arr);
+            }
+            if(methodInfo.env->ExceptionCheck()) {
+                methodInfo.env->ExceptionClear();
+                ret = false;
+            }
             methodInfo.env->DeleteLocalRef(arr);
             methodInfo.env->DeleteLocalRef(jstr);
-            methodInfo.env->DeleteLocalRef(methodInfo.classID);
-        } while(access(filename.c_str(), F_OK) != 0 && --retry);
+            if(ret || access(filename.c_str(), F_OK) == 0)
+                break;
+        }
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
         return ret;
     }
     return false;
@@ -952,13 +1353,20 @@ bool TVPWriteDataToFile(const ttstr &filepath, const void *data,
             if(fp) {
                 bool ret = fwrite(data, 1, size, fp) == size;
                 fclose(fp);
-                remove(tempname.c_str());
-                return ret;
+                if(ret) {
+                    remove(tempname.c_str());
+                    return true;
+                }
+                rename(tempname.c_str(), filename.c_str());
+                return false;
             }
         }
         bool ret = TVPWriteDataToFileJava(filename, data, size);
         if(access(tempname.c_str(), F_OK) == 0) {
-            TVPDeleteFile(tempname);
+            if(ret)
+                TVPDeleteFile(tempname);
+            else if(rename(tempname.c_str(), filename.c_str()) != 0)
+                spdlog::error("Failed to restore backup file: {}", tempname);
         }
         return ret;
     }
@@ -982,8 +1390,15 @@ std::string TVPGetCurrentLanguage() {
         jstring str =
             (jstring)t.env->CallStaticObjectMethod(t.classID, t.methodID);
         t.env->DeleteLocalRef(t.classID);
-        ret = JniHelper::jstring2string(str);
-        t.env->DeleteLocalRef(str);
+        if(t.env->ExceptionCheck()) {
+            t.env->ExceptionClear();
+            if(str)
+                t.env->DeleteLocalRef(str);
+        } else {
+            ret = str ? JniHelper::jstring2string(str) : "";
+            if(str)
+                t.env->DeleteLocalRef(str);
+        }
     }
 
     // Fallback for Flutter mode: use standard Java Locale API
@@ -1025,6 +1440,9 @@ void TVPHideIME() {
                                       "hideTextInput", "()V")) {
         methodInfo.env->CallStaticVoidMethod(methodInfo.classID,
                                              methodInfo.methodID);
+        if(methodInfo.env->ExceptionCheck())
+            methodInfo.env->ExceptionClear();
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
 }
 
@@ -1035,10 +1453,15 @@ void TVPShowIME(int x, int y, int w, int h) {
                                       "showTextInput", "(IIII)V")) {
         methodInfo.env->CallStaticVoidMethod(methodInfo.classID,
                                              methodInfo.methodID, x, y, w, h);
+        if(methodInfo.env->ExceptionCheck())
+            methodInfo.env->ExceptionClear();
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
 }
 
-void TVPProcessInputEvents() {}
+void TVPProcessInputEvents() {
+    _processEvents(0.0f);
+}
 
 bool TVPDeleteFile(const std::string &filename) {
     JniMethodInfo methodInfo;
@@ -1046,8 +1469,19 @@ bool TVPDeleteFile(const std::string &filename) {
                                       "org/tvp/kirikiri2/KR2Activity",
                                       "DeleteFile", "(Ljava/lang/String;)Z")) {
         jstring jstr = methodInfo.env->NewStringUTF(filename.c_str());
+        if(!jstr || methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(jstr)
+                methodInfo.env->DeleteLocalRef(jstr);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return false;
+        }
         bool ret = methodInfo.env->CallStaticBooleanMethod(
             methodInfo.classID, methodInfo.methodID, jstr);
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            ret = false;
+        }
         methodInfo.env->DeleteLocalRef(jstr);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
         return ret;
@@ -1063,8 +1497,21 @@ bool TVPRenameFile(const std::string &from, const std::string &to) {
            "(Ljava/lang/String;Ljava/lang/String;)Z")) {
         jstring jstr = methodInfo.env->NewStringUTF(from.c_str());
         jstring jstr2 = methodInfo.env->NewStringUTF(to.c_str());
+        if(!jstr || !jstr2 || methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            if(jstr)
+                methodInfo.env->DeleteLocalRef(jstr);
+            if(jstr2)
+                methodInfo.env->DeleteLocalRef(jstr2);
+            methodInfo.env->DeleteLocalRef(methodInfo.classID);
+            return false;
+        }
         bool ret = methodInfo.env->CallStaticBooleanMethod(
             methodInfo.classID, methodInfo.methodID, jstr, jstr2);
+        if(methodInfo.env->ExceptionCheck()) {
+            methodInfo.env->ExceptionClear();
+            ret = false;
+        }
         methodInfo.env->DeleteLocalRef(jstr);
         methodInfo.env->DeleteLocalRef(jstr2);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);

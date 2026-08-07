@@ -12,6 +12,7 @@
 #define UtilStreamsH
 
 #include "StorageIntf.h"
+#include <atomic>
 #include <functional>
 
 //---------------------------------------------------------------------------
@@ -173,11 +174,61 @@ protected:
     const tTVPUnpackArchiveCallbacks *_callbacks = nullptr;
 
 public:
-    bool StopRequired = false;
+    std::atomic_bool StopRequired{ false };
 
     virtual ~iTVPUnpackArchiveImpl() = default;
 
     void SetCallback(const tTVPUnpackArchiveCallbacks *cb) { _callbacks = cb; }
+
+    void NotifyEnded() const noexcept {
+        if (_callbacks && _callbacks->FuncOnEnded) {
+            try {
+                _callbacks->FuncOnEnded();
+            } catch (...) {
+            }
+        }
+    }
+
+    void NotifyError(int code, const char *message) const noexcept {
+        if (_callbacks && _callbacks->FuncOnError) {
+            try {
+                _callbacks->FuncOnError(code, message);
+            } catch (...) {
+            }
+        }
+    }
+
+    void NotifyProgress(tjs_uint64 total_size,
+                        tjs_uint64 file_size) const noexcept {
+        if (_callbacks && _callbacks->FuncOnProgress) {
+            try {
+                _callbacks->FuncOnProgress(total_size, file_size);
+            } catch (...) {
+            }
+        }
+    }
+
+    void NotifyNewFile(int idx, const char *utf8name,
+                       tjs_uint64 file_size) const noexcept {
+        if (_callbacks && _callbacks->FuncOnNewFile) {
+            try {
+                _callbacks->FuncOnNewFile(
+                    idx, utf8name ? std::string(utf8name) : std::string(),
+                    file_size);
+            } catch (...) {
+            }
+        }
+    }
+
+    std::string RequestPassword() const {
+        if (!_callbacks || !_callbacks->FuncPassword)
+            return {};
+        try {
+            return _callbacks->FuncPassword();
+        } catch (...) {
+            return {};
+        }
+    }
 
     virtual bool Open(const std::string &path) = 0;
 

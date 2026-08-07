@@ -11,6 +11,8 @@
 #ifndef SysInitIntfH
 #define SysInitIntfH
 
+#include <atomic>
+
 //---------------------------------------------------------------------------
 // System initialization and uninitialization
 //---------------------------------------------------------------------------
@@ -42,7 +44,7 @@ extern void TVPMainWindowClosed(); // called from WindowIntf.cpp,
 // window is visible.
 //---------------------------------------------------------------------------
 
-extern bool TVPSystemUninitCalled;
+extern std::atomic_bool TVPSystemUninitCalled;
 // whether TVPSystemUninit is called or not
 
 //---------------------------------------------------------------------------

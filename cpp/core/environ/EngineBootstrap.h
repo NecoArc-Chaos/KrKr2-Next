@@ -51,7 +51,7 @@ public:
     static bool IsInitialized();
 
 private:
-    static void InitializeGraphics(uint32_t width, uint32_t height,
+    static bool InitializeGraphics(uint32_t width, uint32_t height,
                                    krkr::AngleBackend backend = krkr::AngleBackend::OpenGLES);
     static void InitializeLocale();
 

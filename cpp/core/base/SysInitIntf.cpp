@@ -60,12 +60,14 @@ void TVPSystemInit() {
 //---------------------------------------------------------------------------
 static void TVPCauseAtExit();
 
-bool TVPSystemUninitCalled = false;
+std::atomic_bool TVPSystemUninitCalled{false};
 
 void TVPSystemUninit() {
-    if(TVPSystemUninitCalled)
+    bool expected = false;
+    if(!TVPSystemUninitCalled.compare_exchange_strong(
+           expected, true, std::memory_order_acq_rel,
+           std::memory_order_acquire))
         return;
-    TVPSystemUninitCalled = true;
 
     TVPBeforeSystemUninit();
 
@@ -126,6 +128,9 @@ static void TVPCauseAtExit() {
     if(TVPAtExitShutdown)
         return;
     TVPAtExitShutdown = true;
+
+    if(!TVPAtExitInfos)
+        return;
 
     std::sort(TVPAtExitInfos->begin(),
               TVPAtExitInfos->end()); // descending sort

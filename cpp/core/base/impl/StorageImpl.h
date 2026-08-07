@@ -14,6 +14,7 @@
 #include "StorageIntf.h"
 #include "UtilStreams.h"
 #include <functional>
+#include <memory>
 
 #ifndef S_IFMT
 #define S_IFDIR 0x4000 // Directory
@@ -38,7 +39,7 @@ void TVPGetLocalFileListAt(
 //---------------------------------------------------------------------------
 class tTVPLocalFileStream : public tTJSBinaryStream {
     int Handle;
-    tTVPMemoryStream *MemBuffer = nullptr;
+    std::unique_ptr<tTVPMemoryStream> MemBuffer;
     ttstr FileName;
 
 public:

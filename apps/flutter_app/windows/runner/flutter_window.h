@@ -5,12 +5,18 @@
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
+#include <mutex>
 
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
  public:
+  struct LifetimeState {
+    std::mutex mutex;
+    bool alive = true;
+  };
+
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
@@ -28,6 +34,8 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+  std::shared_ptr<LifetimeState> lifetime_token_ =
+      std::make_shared<LifetimeState>();
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -100,15 +100,20 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
-    RegisterClass(&window_class);
+    if (RegisterClass(&window_class) == 0 &&
+        GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+      return nullptr;
+    }
     class_registered_ = true;
   }
   return kWindowClassName;
 }
 
 void WindowClassRegistrar::UnregisterWindowClass() {
-  UnregisterClass(kWindowClassName, nullptr);
-  class_registered_ = false;
+  if (UnregisterClass(kWindowClassName, GetModuleHandle(nullptr)) != 0 ||
+      GetLastError() == ERROR_CLASS_DOES_NOT_EXIST) {
+    class_registered_ = false;
+  }
 }
 
 Win32Window::Win32Window() {
@@ -127,6 +132,9 @@ bool Win32Window::Create(const std::wstring& title,
 
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
+  if (window_class == nullptr) {
+    return false;
+  }
 
   const POINT target_point = {static_cast<LONG>(origin.x),
                               static_cast<LONG>(origin.y)};
@@ -144,13 +152,23 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  destroy_callback_called_ = false;
+
   UpdateTheme(window);
 
-  return OnCreate();
+  if (!OnCreate()) {
+    Destroy();
+    return false;
+  }
+  return true;
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  if (window_handle_ == nullptr) {
+    return false;
+  }
+  ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return IsWindow(window_handle_) != FALSE;
 }
 
 // static
@@ -165,9 +183,15 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
 
     auto that = static_cast<Win32Window*>(window_struct->lpCreateParams);
     EnableFullDpiSupportIfAvailable(window);
-    that->window_handle_ = window;
+    if (that != nullptr) {
+      that->window_handle_ = window;
+    }
   } else if (Win32Window* that = GetThisFromHandle(window)) {
-    return that->MessageHandler(window, message, wparam, lparam);
+    LRESULT result = that->MessageHandler(window, message, wparam, lparam);
+    if (message == WM_NCDESTROY) {
+      SetWindowLongPtr(window, GWLP_USERDATA, 0);
+    }
+    return result;
   }
 
   return DefWindowProc(window, message, wparam, lparam);
@@ -179,13 +203,24 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
-    case WM_DESTROY:
+    case WM_DESTROY: {
+      // WM_DESTROY can arrive without Destroy() initiating it. Mark the
+      // object as tearing down and clear handles before callbacks so a
+      // re-entrant OnDestroy() cannot destroy the same HWND again.
+      const bool was_destroying = destroying_;
+      destroying_ = true;
       window_handle_ = nullptr;
-      Destroy();
+      child_content_ = nullptr;
+      if (!destroy_callback_called_) {
+        destroy_callback_called_ = true;
+        OnDestroy();
+      }
       if (quit_on_close_) {
         PostQuitMessage(0);
       }
+      destroying_ = was_destroying;
       return 0;
+    }
 
     case WM_DPICHANGED: {
       auto newRectSize = reinterpret_cast<RECT*>(lparam);
@@ -218,19 +253,28 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
   }
 
-  return DefWindowProc(window_handle_, message, wparam, lparam);
+  return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
 void Win32Window::Destroy() {
-  OnDestroy();
+  if (destroying_) {
+    return;
+  }
+  destroying_ = true;
+  if (!destroy_callback_called_) {
+    destroy_callback_called_ = true;
+    OnDestroy();
+  }
 
   if (window_handle_) {
-    DestroyWindow(window_handle_);
+    HWND window = window_handle_;
+    DestroyWindow(window);
     window_handle_ = nullptr;
   }
   if (g_active_window_count == 0) {
     WindowClassRegistrar::GetInstance()->UnregisterWindowClass();
   }
+  destroying_ = false;
 }
 
 Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
@@ -239,6 +283,9 @@ Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
 }
 
 void Win32Window::SetChildContent(HWND content) {
+  if (content == nullptr || window_handle_ == nullptr) {
+    return;
+  }
   child_content_ = content;
   SetParent(content, window_handle_);
   RECT frame = GetClientArea();
@@ -250,8 +297,10 @@ void Win32Window::SetChildContent(HWND content) {
 }
 
 RECT Win32Window::GetClientArea() {
-  RECT frame;
-  GetClientRect(window_handle_, &frame);
+  RECT frame{};
+  if (window_handle_ != nullptr) {
+    GetClientRect(window_handle_, &frame);
+  }
   return frame;
 }
 

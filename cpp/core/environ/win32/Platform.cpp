@@ -14,6 +14,8 @@
 #include <sys/utime.h>
 #include <boost/locale.hpp>
 #include <spdlog/spdlog.h>
+#include <memory>
+#include <vector>
 
 #pragma comment(lib, "psapi.lib")
 
@@ -74,9 +76,20 @@ extern "C" int usleep(unsigned long us) {
 // _Argc, wchar_t *** _Argv, wchar_t *** _Env, int _DoWildCard, void *
 // _StartInfo);
 std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+
+struct LocalFreeDeleter {
+    using pointer = LPWSTR *;
+
+    void operator()(pointer value) const noexcept {
+        if(value != nullptr)
+            LocalFree(value);
+    }
+};
+
 std::string TVPGetDefaultFileDir() {
-    wchar_t buf[MAX_PATH];
-    _wgetcwd(buf, sizeof(buf) / sizeof(buf[0]));
+    wchar_t buf[MAX_PATH] = {};
+    if(_wgetcwd(buf, sizeof(buf) / sizeof(buf[0])) == nullptr)
+        return {};
     wchar_t *p = buf;
     while(*p) {
         if(*p == '\\')
@@ -91,15 +104,31 @@ void TVPCheckAndSendDumps(const std::string &dumpdir,
                           const std::string &packageName,
                           const std::string &versionStr);
 bool TVPCheckStartupArg() {
-    int argc;
-    const std::u16string argv = boost::locale::conv::utf_to_utf<char16_t>(
-        *CommandLineToArgvW(GetCommandLineW(), &argc));
+    int argc = 0;
+    std::unique_ptr<LPWSTR, LocalFreeDeleter> raw_argv(
+        CommandLineToArgvW(GetCommandLineW(), &argc));
     //	__wgetmainargs(&argc, &argv, &env, 0, &info);
-    TVPCheckAndSendDumps(TVPGetDefaultFileDir() + "/dumps", "win32-test",
-                         "test");
+    const std::string default_dir = TVPGetDefaultFileDir();
+    if(!default_dir.empty()) {
+        TVPCheckAndSendDumps(default_dir + "/dumps", "win32-test", "test");
+    }
+    if(!raw_argv || argc <= 0) {
+        return false;
+    }
+
+    std::vector<std::wstring> argv;
+    argv.reserve(static_cast<size_t>(argc));
+    for(int i = 0; i < argc; ++i) {
+        argv.emplace_back(raw_argv.get()[i] != nullptr ? raw_argv.get()[i]
+                                                        : L"");
+    }
+
     if(argc > 1) {
-        if(TVPCheckExistentLocalFile(argv[1])) {
-            if(TVPCheckArchive(argv[1]) == 1) {
+        const std::u16string startup_arg =
+            boost::locale::conv::utf_to_utf<char16_t>(argv[1]);
+        const ttstr startup_path(startup_arg);
+        if(TVPCheckExistentLocalFile(startup_path)) {
+            if(TVPCheckArchive(startup_path) == 1) {
                 TVPMainScene::GetInstance()->startupFrom(
                     converter.to_bytes(argv[1]));
                 return true;
@@ -121,15 +150,22 @@ bool TVPCheckStartupArg() {
                                bootable = true;
                            }
                        }
-                   });
+        });
         for(int i = 2; i < argc; ++i) {
-            std::u16string str{ argv[i] };
-            size_t pos = str.find(u'=');
-            if(pos == str.npos) {
-                TVPSetCommandLine(ttstr{ argv[i] }.c_str(), "yes"_tss);
+            const std::wstring &str = argv[i];
+            size_t pos = str.find(L'=');
+            if(pos == std::wstring::npos) {
+                const ttstr key(
+                    boost::locale::conv::utf_to_utf<char16_t>(str));
+                TVPSetCommandLine(key.c_str(), "yes"_tss);
             } else {
-                ttstr val = str.c_str() + pos + 1;
-                TVPSetCommandLine(str.substr(0, pos).c_str(), val);
+                const std::wstring key = str.substr(0, pos);
+                const std::wstring value = str.substr(pos + 1);
+                const ttstr key16(
+                    boost::locale::conv::utf_to_utf<char16_t>(key));
+                const ttstr value16(
+                    boost::locale::conv::utf_to_utf<char16_t>(value));
+                TVPSetCommandLine(key16.c_str(), value16);
             }
         }
         if(bootable) {
@@ -377,8 +413,10 @@ tjs_uint32 TVPGetRoughTickCount32() { return timeGetTime(); }
 void TVPPrintLog(const char *str) { printf("%s", str); }
 
 bool TVP_stat(const tjs_char *name, tTVP_stat &s) {
-    struct _stat64 t;
+    struct _stat64 t{};
     bool ret = !_wstat64(ttstr{ name }.toWString().c_str(), &t);
+    if(!ret)
+        return false;
     s.st_mode = t.st_mode;
     s.st_size = t.st_size;
     s.st_atime = t.st_atime;

@@ -1,0 +1,559 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/.devtools/vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/binary-cache
+
+jobs:
+  analysis:
+    name: Static analysis
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install analysis dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake bison clang clang-tidy clang-tools cppcheck \
+            flex libegl1-mesa-dev libfontconfig1-dev libgl1-mesa-dev \
+            libgles2-mesa-dev libomp-dev libtool libx11-dev libxext-dev \
+            libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build pkg-config
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-analysis-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Generate compilation database
+        run: |
+          cmake --preset "Linux Debug Config" \
+            -DENABLE_TESTS=OFF \
+            -DBUILD_TOOLS=OFF \
+            -DBUILD_ENGINE_API=OFF
+
+      - name: Run Clang-Tidy
+        id: clang_tidy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          runner="$(command -v run-clang-tidy || true)"
+          if [ -z "$runner" ]; then
+            runner="$(command -v run-clang-tidy-18 || true)"
+          fi
+          test -n "$runner"
+          "$runner" -p out/linux/debug -j "$(nproc)" -quiet 2>&1 | tee clang-tidy.txt
+
+      - name: Run Cppcheck
+        id: cppcheck
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cppcheck \
+            --project=out/linux/debug/compile_commands.json \
+            --cppcheck-build-dir=out/cppcheck \
+            --enable=warning,style,performance,portability \
+            --inconclusive \
+            --inline-suppr \
+            --suppress=missingIncludeSystem \
+            --error-exitcode=1 \
+            --template=gcc 2>&1 | tee cppcheck.txt
+
+      - name: Check PVS-Studio license
+        id: pvs-license
+        shell: bash
+        env:
+          PVS_STUDIO_CREDENTIALS: ${{ secrets.PVS_STUDIO_CREDENTIALS }}
+        run: |
+          if [ -n "$PVS_STUDIO_CREDENTIALS" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::PVS-Studio skipped: configure PVS_STUDIO_CREDENTIALS."
+          fi
+
+      - name: Install PVS-Studio
+        if: steps.pvs-license.outputs.available == 'true'
+        shell: bash
+        run: |
+          curl -fsSL https://files.pvs-studio.com/etc/pubkey.txt \
+            | gpg --dearmor \
+            | sudo tee /usr/share/keyrings/pvs-studio.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/pvs-studio.gpg] https://wcdn.pvs-studio.com/deb viva64-release pvs-studio" \
+            | sudo tee /etc/apt/sources.list.d/pvs-studio.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y pvs-studio
+
+      - name: Run PVS-Studio
+        id: pvs_studio
+        if: steps.pvs-license.outputs.available == 'true'
+        shell: bash
+        env:
+          PVS_STUDIO_CREDENTIALS: ${{ secrets.PVS_STUDIO_CREDENTIALS }}
+        run: |
+          pvs-studio-analyzer credentials "$PVS_STUDIO_CREDENTIALS"
+          pvs-studio-analyzer trace -- \
+            cmake --build --preset "Linux Debug Build" --parallel "$(nproc)"
+          pvs-studio-analyzer analyze -j "$(nproc)" -o pvs-report.plog
+
+      - name: Convert PVS-Studio report
+        if: always() && steps.pvs-license.outputs.available == 'true'
+        shell: bash
+        run: |
+          if [ -f pvs-report.plog ]; then
+            plog-converter pvs-report.plog -t sarif -n pvs-report -r file://
+          fi
+
+      - name: Upload PVS-Studio SARIF
+        if: always() && steps.pvs-license.outputs.available == 'true' && hashFiles('pvs-report.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: pvs-report.sarif
+          category: pvs-studio
+
+      - name: Enforce analysis gate
+        if: always()
+        shell: bash
+        run: |
+          failed=false
+          if [ "${{ steps.clang_tidy.outcome }}" = failure ]; then
+            echo "::error::Clang-Tidy failed."
+            failed=true
+          fi
+          if [ "${{ steps.cppcheck.outcome }}" = failure ]; then
+            echo "::error::Cppcheck failed or reported errors."
+            failed=true
+          fi
+          if [ "${{ steps.pvs_studio.outcome }}" = failure ]; then
+            echo "::error::PVS-Studio failed."
+            failed=true
+          fi
+          if [ "$failed" = true ]; then
+            exit 1
+          fi
+
+      - name: Upload analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-reports
+          if-no-files-found: warn
+          path: |
+            clang-tidy.txt
+            cppcheck.txt
+            pvs-report.plog
+            pvs-report.sarif
+
+  codeql:
+    name: CodeQL C/C++
+    needs: analysis
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
+          queries: security-and-quality
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool libx11-dev \
+            libxext-dev libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build \
+            pkg-config
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-codeql-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-codeql-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Build for CodeQL extraction
+        shell: bash
+        run: |
+          cmake --preset "Linux Release Config" \
+            -DENABLE_TESTS=OFF \
+            -DBUILD_TOOLS=OFF \
+            -DBUILD_ENGINE_API=OFF
+          cmake --build --preset "Linux Release Build" --parallel "$(nproc)"
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:c-cpp
+
+  linux:
+    name: Linux native
+    needs: [analysis, codeql]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libx11-dev libxext-dev \
+            libxfixes-dev libxi-dev libxrandr-dev libtool nasm ninja-build pkg-config
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.18
+        with:
+          key: linux-native
+          max-size: 2G
+
+      - name: Configure
+        run: |
+          cmake --preset "Linux Release Config" \
+            -DENABLE_TESTS=OFF \
+            -DBUILD_TOOLS=OFF \
+            -DBUILD_ENGINE_API=OFF
+
+      - name: Build
+        run: cmake --build --preset "Linux Release Build" --parallel "$(nproc)"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: krkr2-linux
+          if-no-files-found: error
+          path: out/linux/release/krkr2
+
+  windows:
+    name: Windows native
+    needs: [analysis, codeql]
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: choco install nasm --no-progress --yes
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          if (-not (Test-Path (Join-Path $env:VCPKG_ROOT 'vcpkg.exe'))) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+            & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          }
+          & (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') version
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset "Windows Release Config" `
+            -DENABLE_TESTS=OFF `
+            -DBUILD_TOOLS=OFF `
+            -DBUILD_ENGINE_API=OFF
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset "Windows Release Build" --parallel ([Environment]::ProcessorCount)
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: krkr2-windows
+          if-no-files-found: error
+          path: out/windows/release/krkr2.exe
+
+  android:
+    name: Android APK
+    needs: [analysis, codeql]
+    runs-on: ubuntu-24.04
+    env:
+      ANDROID_NDK_VERSION: 28.0.13004108
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK/NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "cmake;3.31.1" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          echo "${ANDROID_HOME}/cmake/3.31.1/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake bison libtool nasm ninja-build pkg-config
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-android-arm64-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-android-arm64-
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.18
+        with:
+          key: android-arm64
+          max-size: 2G
+
+      - name: Build APK
+        shell: bash
+        run: ./build.sh android release --abi=arm64-v8a --jobs="$(nproc)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: krkr2-android-arm64
+          if-no-files-found: error
+          path: apps/flutter_app/build/app/outputs/flutter-apk/app-release.apk
+
+  macos:
+    name: macOS app
+    needs: [analysis, codeql]
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.18
+        with:
+          key: macos-arm64
+          max-size: 2G
+
+      - name: Build macOS app
+        shell: bash
+        run: ./build.sh macos release --jobs="$(sysctl -n hw.logicalcpu)"
+
+      - name: Package app
+        shell: bash
+        run: |
+          app_path="$(find apps/flutter_app/build/macos -type d -name '*.app' -print -quit)"
+          test -n "$app_path"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" krkr2-macos.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: krkr2-macos
+          if-no-files-found: error
+          path: krkr2-macos.zip
+
+  ios:
+    name: iOS app
+    needs: [analysis, codeql]
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/vcpkg/binary-cache
+            ${{ github.workspace }}/.devtools/vcpkg/downloads
+            ${{ github.workspace }}/.devtools/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-ios-arm64-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg/ports/**', 'vcpkg/triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-ios-arm64-
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$VCPKG_ROOT/vcpkg" version
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.18
+        with:
+          key: ios-arm64
+          max-size: 2G
+
+      - name: Build iOS app
+        shell: bash
+        run: ./build.sh ios release --jobs="$(sysctl -n hw.logicalcpu)"
+
+      - name: Package app
+        shell: bash
+        run: |
+          app_path="$(find apps/flutter_app/build/ios -type d -name '*.app' -print -quit)"
+          test -n "$app_path"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" krkr2-ios.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: krkr2-ios
+          if-no-files-found: error
+          path: krkr2-ios.zip

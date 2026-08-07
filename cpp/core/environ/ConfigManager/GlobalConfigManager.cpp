@@ -1,5 +1,8 @@
 #include "GlobalConfigManager.h"
+#include <cstdarg>
+#include <cstdio>
 #include <tinyxml2.h>
+#include <vector>
 #include "Platform.h"
 #include "UtilStreams.h"
 #include "LocaleConfigManager.h"
@@ -8,24 +11,37 @@ bool TVPWriteDataToFile(const ttstr &filepath, const void *data,
                         unsigned int len);
 class XMLMemPrinter : public tinyxml2::XMLPrinter {
     tTVPMemoryStream _stream;
-    char _buffer[4096];
 
 public:
-    virtual void Print(const char *format, ...) {
+    void Print(const char *format, ...) override {
         va_list param;
         va_start(param, format);
-        int n = vsnprintf(_buffer, 4096, format, param);
+        va_list size_param;
+        va_copy(size_param, param);
+        const int n = vsnprintf(nullptr, 0, format, size_param);
+        va_end(size_param);
         va_end(param);
-        _stream.Write(_buffer, n);
+        if(n > 0) {
+            std::vector<char> buffer(static_cast<size_t>(n) + 1);
+            va_list write_param;
+            va_start(write_param, format);
+            const int written = vsnprintf(buffer.data(), buffer.size(), format,
+                                           write_param);
+            va_end(write_param);
+            if(written == n)
+                _stream.Write(buffer.data(), static_cast<tjs_uint>(n));
+        }
     }
-    void SaveFile(const std::string &path) {
+    bool SaveFile(const std::string &path) {
         if(!TVPWriteDataToFile(path, _stream.GetInternalBuffer(),
                                _stream.GetSize())) {
             TVPShowSimpleMessageBox(LocaleConfigManager::GetInstance()->GetText(
                                         "cannot_create_preference"),
                                     LocaleConfigManager::GetInstance()->GetText(
                                         "readonly_storage"));
+            return false;
         }
+        return true;
     }
 };
 
@@ -38,6 +54,8 @@ GlobalConfigManager *GlobalConfigManager::GetInstance() {
 
 void iSysConfigManager::Initialize() {
     AllConfig.clear();
+    CustomArguments.clear();
+    KeyMap.clear();
     ConfigUpdated = false;
 
     tinyxml2::XMLDocument doc;
@@ -116,8 +134,8 @@ void iSysConfigManager::SaveToFile() {
     doc.LinkEndChild(rootElement);
     XMLMemPrinter stream;
     doc.Print(&stream);
-    stream.SaveFile(GetFilePath());
-    ConfigUpdated = false;
+    if(stream.SaveFile(filepath))
+        ConfigUpdated = false;
 }
 
 bool iSysConfigManager::IsValueExist(const std::string &name) {

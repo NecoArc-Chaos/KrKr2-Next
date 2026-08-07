@@ -13,6 +13,7 @@
 
 #include "tjsNative.h"
 #include "tjsHashSearch.h"
+#include <limits>
 #include <vector>
 
 //---------------------------------------------------------------------------
@@ -353,31 +354,52 @@ public:
     ~TArchiveStream() override;
 
     tjs_uint64 Seek(tjs_int64 offset, tjs_int whence) override {
+        tjs_uint64 target = static_cast<tjs_uint64>(CurrentPos);
+        auto seek_from = [this](tjs_uint64 base, tjs_int64 delta,
+                                tjs_uint64 &result) {
+            if(delta < 0) {
+                const tjs_uint64 distance =
+                    static_cast<tjs_uint64>(-(delta + 1)) + 1;
+                if(distance > base)
+                    return false;
+                result = base - distance;
+                return true;
+            }
+            const tjs_uint64 distance = static_cast<tjs_uint64>(delta);
+            if(distance > DataLength - base)
+                return false;
+            result = base + distance;
+            return true;
+        };
         switch(whence) {
             case TJS_BS_SEEK_SET:
-                CurrentPos = offset;
+                if(offset >= 0 && seek_from(0, offset, target))
+                    CurrentPos = static_cast<tjs_int64>(target);
                 break;
 
             case TJS_BS_SEEK_CUR:
-                CurrentPos = offset + CurrentPos;
+                if(seek_from(static_cast<tjs_uint64>(CurrentPos), offset,
+                             target))
+                    CurrentPos = static_cast<tjs_int64>(target);
                 break;
 
             case TJS_BS_SEEK_END:
-                CurrentPos = offset + DataLength;
+                if(seek_from(DataLength, offset, target))
+                    CurrentPos = static_cast<tjs_int64>(target);
                 break;
         }
-        if(CurrentPos < 0)
-            CurrentPos = 0;
-        else if(CurrentPos > (tjs_int64)DataLength)
-            CurrentPos = DataLength;
-        _instr->SetPosition(CurrentPos + StartPos);
+        _instr->SetPosition(StartPos + static_cast<tjs_uint64>(CurrentPos));
         return CurrentPos;
     }
 
     tjs_uint Read(void *buffer, tjs_uint read_size) override {
-        if(CurrentPos + read_size >= (tjs_int64)DataLength) {
-            read_size = (tjs_uint)(DataLength - CurrentPos);
-        }
+        if(static_cast<tjs_uint64>(CurrentPos) >= DataLength ||
+           read_size == 0)
+            return 0;
+        const tjs_uint64 remaining =
+            DataLength - static_cast<tjs_uint64>(CurrentPos);
+        if(static_cast<tjs_uint64>(read_size) > remaining)
+            read_size = static_cast<tjs_uint>(remaining);
 
         _instr->ReadBuffer(buffer, read_size);
 
