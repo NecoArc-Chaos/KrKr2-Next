@@ -1,0 +1,91 @@
+name: Prepare Live2D SDK
+description: Fetch the private Cubism Core SDK and supply the Framework sources used by the plugin
+
+inputs:
+  token:
+    description: Token used to read xiaocongyu66/KiriKiri-Live2D-SDK
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout private Live2D SDK
+      if: inputs.token != ''
+      uses: actions/checkout@v4
+      with:
+        repository: xiaocongyu66/KiriKiri-Live2D-SDK
+        ref: main
+        token: ${{ inputs.token }}
+        path: .live2d-sdk
+        fetch-depth: 1
+        persist-credentials: false
+
+    - name: Checkout Live2D Framework sources
+      if: inputs.token != ''
+      continue-on-error: true
+      uses: actions/checkout@v4
+      with:
+        repository: xiaocongyu66/KiriKiri-LauncherC
+        ref: df997312a8a3af9f9b529adb02f5b6cc7f5733d1
+        path: .live2d-framework-source
+        sparse-checkout: cpp/plugins/live2d/cubism/Framework
+        sparse-checkout-cone-mode: true
+        fetch-depth: 1
+        persist-credentials: false
+
+    - name: Assemble Live2D SDK (Unix)
+      if: inputs.token != '' && runner.os != 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sdk="$GITHUB_WORKSPACE/.live2d-sdk"
+        destination="$GITHUB_WORKSPACE/cpp/plugins/cubism"
+        framework_source="$GITHUB_WORKSPACE/.live2d-framework-source/cpp/plugins/live2d/cubism/Framework"
+
+        test -d "$sdk"
+        rm -rf "$destination"
+        mkdir -p "$destination"
+        cp -a "$sdk/." "$destination/"
+
+        if [ ! -f "$destination/Framework/CubismFramework.hpp" ] &&
+           [ -f "$framework_source/CubismFramework.hpp" ]; then
+            mkdir -p "$destination/Framework"
+            cp -a "$framework_source/." "$destination/Framework/"
+        fi
+
+        rm -rf "$destination/.git" "$sdk" "$GITHUB_WORKSPACE/.live2d-framework-source"
+        if [ ! -f "$destination/Framework/CubismFramework.hpp" ]; then
+          echo "::warning::Live2D Framework sources were not found; the plugin will be disabled."
+        fi
+
+    - name: Assemble Live2D SDK (Windows)
+      if: inputs.token != '' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $sdk = Join-Path $env:GITHUB_WORKSPACE '.live2d-sdk'
+        $destination = Join-Path $env:GITHUB_WORKSPACE 'cpp\plugins\cubism'
+        $frameworkSource = Join-Path $env:GITHUB_WORKSPACE '.live2d-framework-source\cpp\plugins\live2d\cubism\Framework'
+
+        if (-not (Test-Path -LiteralPath $sdk -PathType Container)) {
+          throw 'Private Live2D SDK checkout directory was not created.'
+        }
+        Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path $destination | Out-Null
+        Copy-Item -Path (Join-Path $sdk '*') -Destination $destination -Recurse -Force
+
+        $frameworkHeader = Join-Path $destination 'Framework\CubismFramework.hpp'
+        if (-not (Test-Path -LiteralPath $frameworkHeader) -and
+            (Test-Path -LiteralPath (Join-Path $frameworkSource 'CubismFramework.hpp'))) {
+          $frameworkDestination = Join-Path $destination 'Framework'
+          New-Item -ItemType Directory -Force -Path $frameworkDestination | Out-Null
+          Copy-Item -Path (Join-Path $frameworkSource '*') -Destination $frameworkDestination -Recurse -Force
+        }
+
+        Remove-Item -LiteralPath (Join-Path $destination '.git') -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $sdk -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.live2d-framework-source') -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $frameworkHeader -PathType Leaf)) {
+          Write-Warning 'Live2D Framework sources were not found; the plugin will be disabled.'
+        }

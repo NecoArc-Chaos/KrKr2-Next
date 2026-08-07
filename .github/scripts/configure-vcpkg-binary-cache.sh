@@ -6,6 +6,7 @@ set -euo pipefail
 : "${VCPKG_DEFAULT_BINARY_CACHE:?VCPKG_DEFAULT_BINARY_CACHE is required}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
 : "${GITHUB_REPOSITORY_OWNER:?GITHUB_REPOSITORY_OWNER is required}"
+: "${GITHUB_ACTOR:?GITHUB_ACTOR is required}"
 
 mode="${VCPKG_BINARY_CACHE_MODE:-}"
 if [ -z "$mode" ]; then
@@ -24,9 +25,21 @@ case "$mode" in
 esac
 
 feed="https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json"
-nuget="$(${VCPKG_ROOT}/vcpkg fetch nuget | tail -n 1)"
+set +e
+fetch_output="$("$VCPKG_ROOT/vcpkg" fetch nuget 2>&1)"
+fetch_status=$?
+set -e
+if [ "$fetch_status" -ne 0 ]; then
+    printf '%s\n' "$fetch_output" >&2
+    exit "$fetch_status"
+fi
 
-test -n "$nuget"
+nuget="$(printf '%s\n' "$fetch_output" | tail -n 1 | tr -d '\r')"
+
+if [ -z "$nuget" ] || [ ! -f "$nuget" ]; then
+    printf 'vcpkg fetch nuget returned an invalid path: %s\n' "$nuget" >&2
+    exit 1
+fi
 mono "$nuget" sources remove -Name GitHubPackages >/dev/null 2>&1 || true
 mono "$nuget" sources add \
     -Source "$feed" \

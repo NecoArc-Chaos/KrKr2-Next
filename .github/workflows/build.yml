@@ -70,6 +70,14 @@ jobs:
         with:
           arch: amd64
 
+      - name: Restore vcpkg path (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '.devtools\vcpkg'
+          $env:VCPKG_ROOT = $vcpkgRoot
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Setup Android
         if: matrix.platform == 'android'
         uses: android-actions/setup-android@v3
@@ -81,7 +89,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev \
-            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool mono-runtime \
+            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool mono-complete \
             libx11-dev libxext-dev libxfixes-dev libxi-dev libxrandr-dev \
             nasm ninja-build pkg-config
 
@@ -221,11 +229,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
+
       - name: Install analysis dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison clang clang-tidy clang-tools cppcheck mono-runtime \
+            autoconf automake bison clang clang-tidy clang-tools cppcheck mono-complete \
             flex libegl1-mesa-dev libfontconfig1-dev libgl1-mesa-dev \
             libgles2-mesa-dev libomp-dev libtool libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build pkg-config
@@ -401,6 +416,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -412,7 +434,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev mono-runtime \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev mono-complete \
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool libx11-dev \
             libxext-dev libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build \
             pkg-config
@@ -482,11 +504,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev mono-runtime \
+            autoconf automake bison flex libegl1-mesa-dev libfontconfig1-dev mono-complete \
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev libtool nasm ninja-build pkg-config
 
@@ -564,10 +593,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
+
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
+
+      - name: Restore vcpkg path (Windows)
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '.devtools\vcpkg'
+          $env:VCPKG_ROOT = $vcpkgRoot
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install build dependencies
         shell: pwsh
@@ -645,6 +688,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -678,7 +728,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake bison libtool mono-runtime nasm ninja-build pkg-config
+          sudo apt-get install -y autoconf automake bison libtool mono-complete nasm ninja-build pkg-config
 
       - name: Cache vcpkg
         uses: actions/cache@v4
@@ -747,6 +797,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
 
       - name: Install build dependencies
         run: |
@@ -833,6 +890,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare Live2D SDK
+        uses: ./.github/actions/prepare-live2d
+        env:
+          gthub_token: ${{ secrets.gthub_token }}
+        with:
+          token: ${{ env.gthub_token }}
 
       - name: Install build dependencies
         run: |
