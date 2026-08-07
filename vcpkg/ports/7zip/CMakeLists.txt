@@ -10,6 +10,11 @@ endif()
 
 add_library(7zip)
 
+if(VCPKG_TARGET_IS_IOS AND VCPKG_TARGET_ARCHITECTURE STREQUAL "arm64")
+    target_compile_options(7zip PRIVATE
+        $<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8-a+crc>)
+endif()
+
 # Check makefile in srcdir/CPP/7zip/Archive/7z/makefile
 target_sources(7zip PRIVATE
     CPP/7zip/Compress/Bcj2Coder.cpp
