@@ -10,7 +10,7 @@ endif()
 
 add_library(7zip)
 
-if(VCPKG_TARGET_IS_IOS AND VCPKG_TARGET_ARCHITECTURE STREQUAL "arm64")
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_compile_options(7zip PRIVATE
         $<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8-a+crc>)
 endif()

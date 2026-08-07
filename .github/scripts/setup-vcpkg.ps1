@@ -10,9 +10,9 @@ if (-not (Test-Path -LiteralPath $gitDir -PathType Container)) {
     git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg.git
 }
 
-$promisor = [string](& git -C $env:VCPKG_ROOT config --get remote.origin.promisor 2>$null)
-$filter = [string](& git -C $env:VCPKG_ROOT config --get remote.origin.partialclonefilter 2>$null)
-$partialClone = $promisor.Trim() -eq 'true' -or -not [string]::IsNullOrWhiteSpace($filter)
+$promisor = (& git -C $env:VCPKG_ROOT config --get remote.origin.promisor 2>$null | Out-String).Trim()
+$filter = (& git -C $env:VCPKG_ROOT config --get remote.origin.partialclonefilter 2>$null | Out-String).Trim()
+$partialClone = $promisor -eq 'true' -or -not [string]::IsNullOrWhiteSpace($filter)
 $fetchArgs = @('--no-tags', 'origin', 'HEAD')
 if ($partialClone) {
     & git -C $env:VCPKG_ROOT config --unset-all remote.origin.promisor 2>$null
