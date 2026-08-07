@@ -54,8 +54,19 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
           if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
@@ -219,8 +230,19 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
           if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
@@ -269,8 +291,19 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
           if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
@@ -329,8 +362,19 @@ jobs:
       - name: Setup vcpkg
         shell: pwsh
         run: |
+          if (-not (Test-Path (Join-Path $env:VCPKG_ROOT '.git'))) {
+            New-Item -ItemType Directory -Force -Path $env:VCPKG_ROOT | Out-Null
+            git -C $env:VCPKG_ROOT init
+            git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg.git
+            git -C $env:VCPKG_ROOT config remote.origin.promisor true
+            git -C $env:VCPKG_ROOT config remote.origin.partialclonefilter blob:none
+            git -C $env:VCPKG_ROOT fetch --filter=blob:none --no-tags origin HEAD
+            git -C $env:VCPKG_ROOT checkout --force FETCH_HEAD
+          }
+          if ((git -C $env:VCPKG_ROOT rev-parse --is-shallow-repository).Trim() -eq 'true') {
+            git -C $env:VCPKG_ROOT fetch --unshallow --filter=blob:none
+          }
           if (-not (Test-Path (Join-Path $env:VCPKG_ROOT 'vcpkg.exe'))) {
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
             & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
           }
           & (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') version
@@ -413,8 +457,19 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
           if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
@@ -467,8 +522,19 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
           if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
@@ -528,8 +594,19 @@ jobs:
       - name: Setup vcpkg
         shell: bash
         run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            mkdir -p "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" init
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" config remote.origin.promisor true
+            git -C "$VCPKG_ROOT" config remote.origin.partialclonefilter blob:none
+            git -C "$VCPKG_ROOT" fetch --filter=blob:none --no-tags origin HEAD
+            git -C "$VCPKG_ROOT" checkout --force FETCH_HEAD
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+            git -C "$VCPKG_ROOT" fetch --unshallow --filter=blob:none
+          fi
           if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
           "$VCPKG_ROOT/vcpkg" version
