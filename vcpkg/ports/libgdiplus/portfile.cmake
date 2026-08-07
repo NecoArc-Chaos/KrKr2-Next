@@ -31,6 +31,19 @@ vcpkg_cmake_install()
 vcpkg_fixup_pkgconfig()
 vcpkg_copy_pdbs()
 
+# The custom CMake export is generated from pkg-config paths. Replace the
+# build-tree prefix so binary-cache packages remain relocatable.
+file(GLOB_RECURSE LIBGDIPLUS_CMAKE_FILES
+    "${CURRENT_PACKAGES_DIR}/share/libgdiplus/*.cmake"
+    "${CURRENT_PACKAGES_DIR}/debug/share/libgdiplus/*.cmake"
+)
+foreach(LIBGDIPLUS_CMAKE_FILE IN LISTS LIBGDIPLUS_CMAKE_FILES)
+    file(READ "${LIBGDIPLUS_CMAKE_FILE}" LIBGDIPLUS_CMAKE_CONTENT)
+    string(REPLACE "${CURRENT_INSTALLED_DIR}" "\${_IMPORT_PREFIX}"
+        LIBGDIPLUS_CMAKE_CONTENT "${LIBGDIPLUS_CMAKE_CONTENT}")
+    file(WRITE "${LIBGDIPLUS_CMAKE_FILE}" "${LIBGDIPLUS_CMAKE_CONTENT}")
+endforeach()
+
 file(REMOVE_RECURSE
     "${CURRENT_PACKAGES_DIR}/debug/include"
     "${CURRENT_PACKAGES_DIR}/debug/share"
