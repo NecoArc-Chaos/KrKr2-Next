@@ -55,6 +55,12 @@ set(APP_NAME krkr2)
 
 project(${APP_NAME})
 
+if(LINUX)
+    add_compile_definitions(LINUX)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+endif()
+
 if(ANDROID)
     add_compile_options(-Wno-inconsistent-missing-override)
 endif()
@@ -116,6 +122,10 @@ if(TARGET ${PROJECT_NAME})
     target_link_libraries(${PROJECT_NAME} PUBLIC
         krkr2plugin krkr2core
     )
+
+    if(LINUX)
+        target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::GTK3)
+    endif()
 
     ## app config
     if(APPLE)

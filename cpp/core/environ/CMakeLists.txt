@@ -51,6 +51,10 @@ add_library(${PROJECT_NAME} STATIC ${ENVIRON_SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${ENVIRON_HEADERS_DIR})
 target_link_libraries(${PROJECT_NAME} PUBLIC tjs2 PRIVATE core_base_module core_visual_module core_sound_module core_plugin_module core_movie_module core_utils_module)
 
+if(LINUX)
+    target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::GTK3)
+endif()
+
 find_package(7zip CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
 find_package(unofficial-minizip CONFIG REQUIRED)
