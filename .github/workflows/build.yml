@@ -115,6 +115,7 @@ jobs:
           brew list autoconf >/dev/null 2>&1 || brew install autoconf
           brew list automake >/dev/null 2>&1 || brew install automake
           brew list autoconf-archive >/dev/null 2>&1 || brew install autoconf-archive
+          brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list mono >/dev/null 2>&1 || brew install mono
 
@@ -694,6 +695,7 @@ jobs:
           brew list autoconf >/dev/null 2>&1 || brew install autoconf
           brew list automake >/dev/null 2>&1 || brew install automake
           brew list autoconf-archive >/dev/null 2>&1 || brew install autoconf-archive
+          brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list mono >/dev/null 2>&1 || brew install mono
 
@@ -773,6 +775,7 @@ jobs:
           brew list autoconf >/dev/null 2>&1 || brew install autoconf
           brew list automake >/dev/null 2>&1 || brew install automake
           brew list autoconf-archive >/dev/null 2>&1 || brew install autoconf-archive
+          brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list mono >/dev/null 2>&1 || brew install mono
 
