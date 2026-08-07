@@ -194,10 +194,23 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          cmake --preset "${{ matrix.preset }}" `
-            -DENABLE_TESTS=OFF `
-            -DBUILD_TOOLS=OFF `
-            -DBUILD_ENGINE_API=OFF
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            & cmake --preset "${{ matrix.preset }}" `
+              -DENABLE_TESTS=OFF `
+              -DBUILD_TOOLS=OFF `
+              -DBUILD_ENGINE_API=OFF
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              exit 0
+            }
+            if ($attempt -eq $maxAttempts) {
+              exit $exitCode
+            }
+            $delay = 15 * [math]::Pow(2, $attempt - 1)
+            Write-Host "Dependency prebuild failed with exit code $exitCode; retrying in $delay seconds ($attempt/$maxAttempts)."
+            Start-Sleep -Seconds $delay
+          }
 
       - name: Save vcpkg source downloads
         if: always() && steps.vcpkg_source_cache.outputs.cache-hit != 'true'
