@@ -603,11 +603,9 @@ jobs:
 
   linux:
     name: Linux native
-    needs: [analysis, codeql, vcpkg-dependencies]
+    needs: vcpkg-dependencies
     if: >-
-      always() && needs.analysis.result == 'success' &&
-      needs.codeql.result == 'success' &&
-      (github.event_name == 'pull_request' ||
+      always() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result == 'success')
     runs-on: ubuntu-24.04
     steps:
@@ -691,11 +689,9 @@ jobs:
 
   windows:
     name: Windows native
-    needs: [analysis, codeql, vcpkg-dependencies]
+    needs: vcpkg-dependencies
     if: >-
-      always() && needs.analysis.result == 'success' &&
-      needs.codeql.result == 'success' &&
-      (github.event_name == 'pull_request' ||
+      always() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result == 'success')
     runs-on: windows-2025
     steps:
@@ -784,11 +780,9 @@ jobs:
 
   android:
     name: Android APK
-    needs: [analysis, codeql, vcpkg-dependencies]
+    needs: vcpkg-dependencies
     if: >-
-      always() && needs.analysis.result == 'success' &&
-      needs.codeql.result == 'success' &&
-      (github.event_name == 'pull_request' ||
+      always() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result == 'success')
     runs-on: ubuntu-24.04
     env:
@@ -894,11 +888,9 @@ jobs:
 
   macos:
     name: macOS app
-    needs: [analysis, codeql, vcpkg-dependencies]
+    needs: vcpkg-dependencies
     if: >-
-      always() && needs.analysis.result == 'success' &&
-      needs.codeql.result == 'success' &&
-      (github.event_name == 'pull_request' ||
+      always() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result == 'success')
     runs-on: macos-14
     steps:
@@ -990,11 +982,9 @@ jobs:
 
   ios:
     name: iOS app
-    needs: [analysis, codeql, vcpkg-dependencies]
+    needs: vcpkg-dependencies
     if: >-
-      always() && needs.analysis.result == 'success' &&
-      needs.codeql.result == 'success' &&
-      (github.event_name == 'pull_request' ||
+      always() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result == 'success')
     runs-on: macos-14
     steps:
