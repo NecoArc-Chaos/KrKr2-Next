@@ -476,8 +476,12 @@ static GLuint _CurrentRenderTarget = 0;
 static GLenum _glCompressedTexFormat = GL_RGBA;
 unsigned int TVPMaxTextureSize;
 static uint64_t _totalVMemSize = 0;
-static unsigned int GetMaxTextureWidth() { return TVPMaxTextureSize; }
-static unsigned int GetMaxTextureHeight() { return TVPMaxTextureSize; }
+static unsigned int GetMaxTextureWidth() {
+    return TVPMaxTextureSize == 0 ? 1 : TVPMaxTextureSize;
+}
+static unsigned int GetMaxTextureHeight() {
+    return TVPMaxTextureSize == 0 ? 1 : TVPMaxTextureSize;
+}
 static unsigned int power_of_two(unsigned int input, unsigned int value = 32) {
     while(value < input) {
         value <<= 1;

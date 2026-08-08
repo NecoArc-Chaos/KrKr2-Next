@@ -99,9 +99,9 @@ namespace TJS {
     };
 
     //---------------------------------------------------------------------------
-    void TJS_eTJSError(const ttstr &msg);
+    [[noreturn]] void TJS_eTJSError(const ttstr &msg);
 
-    void TJS_eTJSError(const tjs_char *msg);
+    [[noreturn]] void TJS_eTJSError(const tjs_char *msg);
 
     //---------------------------------------------------------------------------
     class eTJSVariantError : public eTJSError {
@@ -112,9 +112,9 @@ namespace TJS {
     };
 
     //---------------------------------------------------------------------------
-    void TJS_eTJSVariantError(const ttstr &msg);
+    [[noreturn]] void TJS_eTJSVariantError(const ttstr &msg);
 
-    void TJS_eTJSVariantError(const tjs_char *msg);
+    [[noreturn]] void TJS_eTJSVariantError(const tjs_char *msg);
 
     //---------------------------------------------------------------------------
     class tTJSScriptBlock;

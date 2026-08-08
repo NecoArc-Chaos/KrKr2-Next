@@ -10,6 +10,7 @@ CDVDMessageQueue::CDVDMessageQueue(std::string owner) :
     m_iDataSize = 0;
     m_bAbortRequest = false;
     m_bInitialized = false;
+    m_drain = false;
 
     m_TimeBack = DVD_NOPTS_VALUE;
     m_TimeFront = DVD_NOPTS_VALUE;

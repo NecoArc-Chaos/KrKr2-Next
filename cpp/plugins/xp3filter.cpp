@@ -41,12 +41,18 @@ tjs_error CBinaryAccessor::OperationByNum(
             m_buff[num] += opnum;
             break;
         case TJS_OP_MOD:
+            if(opnum == 0)
+                TJS::TJSThrowDivideByZero();
             m_buff[num] %= opnum;
             break;
         case TJS_OP_DIV:
+            if(opnum == 0)
+                TJS::TJSThrowDivideByZero();
             m_buff[num] /= (signed char)opnum;
             break;
         case TJS_OP_IDIV:
+            if(opnum == 0)
+                TJS::TJSThrowDivideByZero();
             m_buff[num] /= opnum;
             break;
         case TJS_OP_MUL:

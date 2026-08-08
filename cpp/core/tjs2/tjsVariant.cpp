@@ -177,10 +177,12 @@ namespace TJS {
     }
 
     //---------------------------------------------------------------------------
-    void TJSThrowNullAccess() { TJS_eTJSError(TJSNullAccess); }
+    [[noreturn]] void TJSThrowNullAccess() { TJS_eTJSError(TJSNullAccess); }
 
     //---------------------------------------------------------------------------
-    void TJSThrowDivideByZero() { TJS_eTJSVariantError(TJSDivideByZero); }
+    [[noreturn]] void TJSThrowDivideByZero() {
+        TJS_eTJSVariantError(TJSDivideByZero);
+    }
     //---------------------------------------------------------------------------
 
     //---------------------------------------------------------------------------

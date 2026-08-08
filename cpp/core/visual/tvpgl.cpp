@@ -10432,7 +10432,7 @@ TVP_GL_FUNC_DECL(void, TVPInitGammaAdjustTempData_c,
 		temp->B[i]= n;
 #else
         // pow(x, y) == exp(y * log(x))
-        double rate = log((double)i / 255.0);
+        double rate = i == 0 ? -INFINITY : log((double)i / 255.0);
         int n;
         n = (int)(exp(rate * rgamma) * ramp + 0.5 + (double)data->RFloor);
         if(n < 0)
@@ -12742,7 +12742,9 @@ void TVPPsMakeTable() {
             TVPPsTableColorDodge[s][d] =
                 ((255 - s) <= d) ? (0xff) : ((d * 255) / (255 - s));
             TVPPsTableColorBurn[s][d] =
-                (s <= (255 - d)) ? (0x00) : (255 - ((255 - d) * 255) / s);
+                (s == 0 || s <= (255 - d))
+                    ? (0x00)
+                    : (255 - ((255 - d) * 255) / s);
 #ifdef TVPPS_USE_OVERLAY_TABLE
             TVPPsTableOverlay[s][d] = (d < 128)
                 ? ((s * d * 2) / 255)

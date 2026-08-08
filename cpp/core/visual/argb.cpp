@@ -17,6 +17,8 @@ tTVPARGB<tjs_uint8>::operator tjs_uint32() const {
 
 template <>
 void tTVPARGB<tjs_uint8>::average(tjs_int n) {
+    if(n <= 0)
+        return;
     tjs_int half_n = n >> 1;
 
     tjs_int recip = (1L << 23) / n;
@@ -29,6 +31,8 @@ void tTVPARGB<tjs_uint8>::average(tjs_int n) {
 
 template <>
 void tTVPARGB<tjs_uint16>::average(tjs_int n) {
+    if(n <= 0)
+        return;
     tjs_int half_n = n >> 1;
 
     tjs_int recip = (1L << 16) / n;
@@ -41,6 +45,8 @@ void tTVPARGB<tjs_uint16>::average(tjs_int n) {
 
 template <>
 void tTVPARGB<tjs_uint32>::average(tjs_int n) {
+    if(n <= 0)
+        return;
     tjs_int half_n = n >> 1;
 
     b = (b + half_n) / n;

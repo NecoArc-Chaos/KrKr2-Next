@@ -209,7 +209,7 @@ bool FFWaveDecoder::SetPosition(tjs_uint64 samplepos) {
     }
     if(Packet.duration <= 0) {
         if(Packet.data)
-            av_free_packet(&Packet);
+            av_packet_unref(&Packet);
         if(!ReadPacket()) {
             int ret = avformat_seek_file(FormatCtx, StreamIdx, 0, 0, 0,
                                          AVSEEK_FLAG_BACKWARD);
@@ -228,7 +228,7 @@ bool FFWaveDecoder::SetPosition(tjs_uint64 samplepos) {
         if(ret < 0)
             return false;
         if(Packet.data)
-            av_free_packet(&Packet);
+            av_packet_unref(&Packet);
         if(!ReadPacket())
             return false;
         if(seek_target < Packet.dts) {
@@ -421,7 +421,7 @@ int FFWaveDecoder::audio_decode_frame() {
 
         /* free the current packet */
         if(Packet.data)
-            av_free_packet(&Packet);
+            av_packet_unref(&Packet);
 
         pkt_temp.stream_index = -1;
 
@@ -446,7 +446,7 @@ bool FFWaveDecoder::ReadPacket() {
             stream_start_time = AudioStream->start_time;
             return true;
         }
-        av_free_packet(&Packet);
+        av_packet_unref(&Packet);
     }
     return false;
 }

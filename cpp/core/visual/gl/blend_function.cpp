@@ -534,7 +534,9 @@ static void TVPPsInitTable() {
             ps_color_dodge_table::TABLE[s][d] =
                 ((255 - s) <= d) ? (0xff) : ((d * 255) / (255 - s));
             ps_color_burn_table::TABLE[s][d] =
-                (s <= (255 - d)) ? (0x00) : (255 - ((255 - d) * 255) / s);
+                (s == 0 || s <= (255 - d))
+                    ? (0x00)
+                    : (255 - ((255 - d) * 255) / s);
 #ifdef TVPPS_USE_OVERLAY_TABLE
             ps_overlay_table::TABLE[s][d] = (d < 128)
                 ? ((s * d * 2) / 255)

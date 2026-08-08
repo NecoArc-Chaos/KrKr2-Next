@@ -98,6 +98,9 @@ static void TVPConvertFloatPCMTo16bits(tjs_int16 *output, const float *input,
                                        bool downmix) {
     // convert 32bit float to 16bit integer
 
+    if(channels <= 0 || count <= 0)
+        return;
+
     // float PCM is in range of +1.0 ... 0 ... -1.0
     // clip sample which is out of the range.
 
@@ -144,6 +147,9 @@ static void TVPConvertIntegerPCMTo16bits(tjs_int16 *output, const void *input,
                                          tjs_int validbits, tjs_int channels,
                                          tjs_int count, bool downmix) {
     // convert integer PCMs to 16bit integer PCM
+
+    if(channels <= 0 || count <= 0)
+        return;
 #define PROCESS_BY_CHANNELS                                                    \
     switch(channels) {                                                         \
         case 2:                                                                \

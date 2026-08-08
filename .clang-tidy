@@ -36,6 +36,5 @@ Checks: >-
   performance-inefficient-vector-operation,
   readability-misleading-indentation
 HeaderFilterRegex: '(^|/)(apps|bridge|cpp|platforms|tools)/'
-ExcludeHeaderFilterRegex: '(^|/)(cpp/external|cpp/plugins/cubism)/'
 FormatStyle: file
 WarningsAsErrors: ''

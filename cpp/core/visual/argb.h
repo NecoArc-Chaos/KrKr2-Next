@@ -82,6 +82,8 @@ struct tTVPARGB {
     //		{ *this = rhs; }
 
     void average(tjs_int n) {
+        if(n <= 0)
+            return;
         tjs_int half_n = n >> 1;
 
         b /= n;

@@ -39,16 +39,19 @@ TJS_EXP_FUNC_DEF(ttstr, TVPFormatMessage,
 TJS_EXP_FUNC_DEF(ttstr, TVPFormatMessage,
                  (const tjs_char *msg, const ttstr &p1, const ttstr &p2));
 
-TJS_EXP_FUNC_DEF(void, TVPThrowExceptionMessage, (const tjs_char *msg));
+[[noreturn]] TJS_EXP_FUNC_DEF(void, TVPThrowExceptionMessage,
+                              (const tjs_char *msg));
 
-TJS_EXP_FUNC_DEF(void, TVPThrowExceptionMessage,
-                 (const tjs_char *msg, const ttstr &p1, tjs_int num));
+[[noreturn]] TJS_EXP_FUNC_DEF(
+    void, TVPThrowExceptionMessage,
+    (const tjs_char *msg, const ttstr &p1, tjs_int num));
 
-TJS_EXP_FUNC_DEF(void, TVPThrowExceptionMessage,
-                 (const tjs_char *msg, const ttstr &p1));
+[[noreturn]] TJS_EXP_FUNC_DEF(void, TVPThrowExceptionMessage,
+                              (const tjs_char *msg, const ttstr &p1));
 
-TJS_EXP_FUNC_DEF(void, TVPThrowExceptionMessage,
-                 (const tjs_char *msg, const ttstr &p1, const ttstr &p2));
+[[noreturn]] TJS_EXP_FUNC_DEF(
+    void, TVPThrowExceptionMessage,
+    (const tjs_char *msg, const ttstr &p1, const ttstr &p2));
 
 TJS_EXP_FUNC_DEF(ttstr, TVPGetAboutString, ());
 

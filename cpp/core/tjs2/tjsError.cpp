@@ -162,14 +162,18 @@ namespace TJS {
     void TJS_eTJS() { throw eTJS(); }
 
     //---------------------------------------------------------------------------
-    void TJS_eTJSError(const ttstr &msg) { throw eTJSError(msg); }
+    [[noreturn]] void TJS_eTJSError(const ttstr &msg) { throw eTJSError(msg); }
 
-    void TJS_eTJSError(const tjs_char *msg) { TJS_eTJSError(ttstr{ msg }); }
+    [[noreturn]] void TJS_eTJSError(const tjs_char *msg) {
+        TJS_eTJSError(ttstr{ msg });
+    }
 
     //---------------------------------------------------------------------------
-    void TJS_eTJSVariantError(const ttstr &msg) { throw eTJSVariantError(msg); }
+    [[noreturn]] void TJS_eTJSVariantError(const ttstr &msg) {
+        throw eTJSVariantError(msg);
+    }
 
-    void TJS_eTJSVariantError(const tjs_char *msg) {
+    [[noreturn]] void TJS_eTJSVariantError(const tjs_char *msg) {
         throw eTJSVariantError(msg);
     }
 

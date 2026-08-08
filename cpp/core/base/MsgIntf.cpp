@@ -105,19 +105,23 @@ ttstr TVPFormatMessage(const tjs_char *msg, const ttstr &p1, const ttstr &p2) {
 //---------------------------------------------------------------------------
 // TVPThrowExceptionMessage
 //---------------------------------------------------------------------------
-void TVPThrowExceptionMessage(const tjs_char *msg) { throw eTJSError(msg); }
+[[noreturn]] void TVPThrowExceptionMessage(const tjs_char *msg) {
+    throw eTJSError(msg);
+}
 
-void TVPThrowExceptionMessage(const tjs_char *msg, const ttstr &p1,
-                              tjs_int num) {
+[[noreturn]] void TVPThrowExceptionMessage(const tjs_char *msg,
+                                           const ttstr &p1, tjs_int num) {
     throw eTJSError(TVPFormatMessage(msg, p1, ttstr(num)));
 }
 
-void TVPThrowExceptionMessage(const tjs_char *msg, const ttstr &p1) {
+[[noreturn]] void TVPThrowExceptionMessage(const tjs_char *msg,
+                                           const ttstr &p1) {
     throw eTJSError(TVPFormatMessage(msg, p1));
 }
 
-void TVPThrowExceptionMessage(const tjs_char *msg, const ttstr &p1,
-                              const ttstr &p2) {
+[[noreturn]] void TVPThrowExceptionMessage(const tjs_char *msg,
+                                           const ttstr &p1,
+                                           const ttstr &p2) {
     throw eTJSError(TVPFormatMessage(msg, p1, p2));
 }
 //---------------------------------------------------------------------------
