@@ -122,6 +122,7 @@ jobs:
           brew list autoconf >/dev/null 2>&1 || brew install autoconf
           brew list automake >/dev/null 2>&1 || brew install automake
           brew list autoconf-archive >/dev/null 2>&1 || brew install autoconf-archive
+          brew list bison >/dev/null 2>&1 || brew install bison
           brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list mono >/dev/null 2>&1 || brew install mono
@@ -129,7 +130,18 @@ jobs:
       - name: Install Windows dependencies
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: choco install nasm --no-progress --yes
+        run: |
+          choco install nasm winflexbison3 --no-progress --yes
+          $bison = Get-ChildItem -Path @(
+            (Join-Path $env:ChocolateyInstall 'bin'),
+            (Join-Path $env:ChocolateyInstall 'lib\winflexbison3')
+          ) -Filter win_bison.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $bison) {
+            throw 'win_bison.exe was not installed by winflexbison3'
+          }
+          $bison.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $bison.FullName --version
 
       - name: Restore vcpkg source downloads
         id: vcpkg_source_cache
@@ -720,7 +732,18 @@ jobs:
 
       - name: Install build dependencies
         shell: pwsh
-        run: choco install nasm --no-progress --yes
+        run: |
+          choco install nasm winflexbison3 --no-progress --yes
+          $bison = Get-ChildItem -Path @(
+            (Join-Path $env:ChocolateyInstall 'bin'),
+            (Join-Path $env:ChocolateyInstall 'lib\winflexbison3')
+          ) -Filter win_bison.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $bison) {
+            throw 'win_bison.exe was not installed by winflexbison3'
+          }
+          $bison.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $bison.FullName --version
 
       - name: Restore vcpkg source downloads
         id: vcpkg_source_cache
@@ -909,6 +932,7 @@ jobs:
           brew list autoconf >/dev/null 2>&1 || brew install autoconf
           brew list automake >/dev/null 2>&1 || brew install automake
           brew list autoconf-archive >/dev/null 2>&1 || brew install autoconf-archive
+          brew list bison >/dev/null 2>&1 || brew install bison
           brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list mono >/dev/null 2>&1 || brew install mono
@@ -1003,6 +1027,7 @@ jobs:
           brew list autoconf >/dev/null 2>&1 || brew install autoconf
           brew list automake >/dev/null 2>&1 || brew install automake
           brew list autoconf-archive >/dev/null 2>&1 || brew install autoconf-archive
+          brew list bison >/dev/null 2>&1 || brew install bison
           brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list mono >/dev/null 2>&1 || brew install mono

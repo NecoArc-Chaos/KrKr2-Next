@@ -24,7 +24,7 @@ endif()
 #===============================================================#
 #======================= generate parser =======================#
 #===============================================================#
-find_program(BISON_EXECUTABLE NAMES win_bison.exe bison.exe bison
+find_program(BISON_EXECUTABLE NAMES win_bison.exe bison.exe bison REQUIRED
     HINTS
         /opt/homebrew/opt/bison/bin   # Homebrew (Apple Silicon)
         /usr/local/opt/bison/bin      # Homebrew (Intel Mac)
