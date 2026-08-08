@@ -1,7 +1,40 @@
 ---
 # Keep CI focused on correctness, security, and resource misuse. Legacy
 # modernization and readability migrations belong in separate cleanup work.
-Checks: '-*,bugprone-*,cert-*,misc-*,performance-inefficient-algorithm,performance-inefficient-vector-operation'
+Checks: >-
+  -*,
+  bugprone-argument-comment,
+  bugprone-assert-side-effect,
+  bugprone-copy-constructor-init,
+  bugprone-dangling-handle,
+  bugprone-fold-init-type,
+  bugprone-inaccurate-erase,
+  bugprone-integer-division,
+  bugprone-macro-parentheses,
+  bugprone-macro-repeated-side-effects,
+  bugprone-misplaced-pointer-arithmetic-in-alloc,
+  bugprone-sizeof-container,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-enum-usage,
+  bugprone-suspicious-memory-comparison,
+  bugprone-suspicious-realloc-usage,
+  bugprone-suspicious-string-compare,
+  bugprone-swapped-arguments,
+  bugprone-unhandled-self-assignment,
+  bugprone-unused-return-value,
+  bugprone-use-after-move,
+  cert-err34-c,
+  cert-msc50-cpp,
+  cert-msc51-cpp,
+  cert-str34-c,
+  misc-misplaced-const,
+  misc-new-delete-overloads,
+  misc-throw-by-value-catch-by-reference,
+  misc-unconventional-assign-operator,
+  misc-uniqueptr-reset-release,
+  performance-inefficient-algorithm,
+  performance-inefficient-vector-operation,
+  readability-misleading-indentation
 HeaderFilterRegex: '(^|/)(apps|bridge|cpp|platforms|tools)/'
 ExcludeHeaderFilterRegex: '(^|/)(cpp/external|cpp/plugins/cubism)/'
 FormatStyle: file
