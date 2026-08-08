@@ -387,7 +387,11 @@ public:
             textureIds_.push_back(texId);
         }
 
-        CreateRenderer();
+        const csmUint32 rendererWidth = std::max<csmUint32>(
+            1u, static_cast<csmUint32>(GetModel()->GetCanvasWidthPixel()));
+        const csmUint32 rendererHeight = std::max<csmUint32>(
+            1u, static_cast<csmUint32>(GetModel()->GetCanvasHeightPixel()));
+        CreateRenderer(rendererWidth, rendererHeight);
         auto *renderer = GetRenderer<Rendering::CubismRenderer_OpenGLES2>();
         if (!renderer) {
             spdlog::error("krkrlive2d: failed to create renderer");
