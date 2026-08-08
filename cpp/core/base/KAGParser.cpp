@@ -396,6 +396,9 @@ void tTJSNI_KAGParser::Invalidate() {
 
 //---------------------------------------------------------------------------
 void tTJSNI_KAGParser::operator=(const tTJSNI_KAGParser &ref) {
+    if(this == &ref)
+        return;
+
     // copy Macros
     {
         tTJSVariant src(ref.Macros, ref.Macros);

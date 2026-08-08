@@ -1,5 +1,8 @@
 #include "DemuxFFmpeg.h"
 
+#include <charconv>
+#include <string_view>
+
 extern "C" {
 #include "libavutil/dict.h"
 #include "libavutil/opt.h"
@@ -28,6 +31,19 @@ static const struct StereoModeConversionMap WmvToInternalStereoModeMap[] = {
     { "OverUnderLT", "top_bottom" },
     {}
 };
+
+static int ParseMetadataInt(const char *value, int fallback) {
+    if(!value)
+        return fallback;
+
+    const std::string_view text(value);
+    int parsed = 0;
+    const auto result =
+        std::from_chars(text.data(), text.data() + text.size(), parsed);
+    if(result.ec != std::errc{} || result.ptr != text.data() + text.size())
+        return fallback;
+    return parsed;
+}
 
 #define FF_MAX_EXTRADATA_SIZE ((1 << 28) - FF_INPUT_BUFFER_PADDING_SIZE)
 #define FFMPEG_FILE_BUFFER_SIZE 32768 // default reading size for ffmpeg
@@ -1271,7 +1287,7 @@ CDemuxStream *CDVDDemuxFFmpeg::AddStream(int streamIdx) {
                 AVDictionaryEntry *rtag =
                     av_dict_get(pStream->metadata, "rotate", nullptr, 0);
                 if(rtag)
-                    st->iOrientation = atoi(rtag->value);
+                    st->iOrientation = ParseMetadataInt(rtag->value, 0);
 
                 // detect stereoscopic mode
                 std::string stereoMode =

@@ -4,6 +4,8 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <charconv>
+#include <string_view>
 #include "WaveIntf.h"
 #include "SysInitIntf.h"
 #include "StorageIntf.h"
@@ -262,8 +264,14 @@ bool VorbisWaveDecoder::SetStream(const ttstr &url) {
         if(vc->vendor) {
             const char *vorbis_date = strstr(vc->vendor, "libVorbis I ");
             if(vorbis_date) {
-                int date = atoi(vorbis_date + 12);
-                if(date < WARN_OLD_VORBIS_DATE) {
+                const std::string_view date_text(vorbis_date + 12);
+                int date = 0;
+                const auto parsed = std::from_chars(
+                    date_text.data(), date_text.data() + date_text.size(),
+                    date);
+                if(parsed.ec == std::errc{} &&
+                   parsed.ptr != date_text.data() &&
+                   date < WARN_OLD_VORBIS_DATE) {
                     OldEncoderWarned = true;
                     TVPAddLog(TJS_W("wuvorbis: warning: The Vorbis "
                                     "stream \"") +

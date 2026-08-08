@@ -373,6 +373,7 @@ bool tTVPApplication::StartApplication(ttstr path) {
         _project_startup = true;
         spdlog::info("StartApplication: completed successfully");
         spdlog::default_logger()->flush();
+        return true;
     } catch(const EAbort &) {
         // nothing to do
     } catch(const Exception &exception) {

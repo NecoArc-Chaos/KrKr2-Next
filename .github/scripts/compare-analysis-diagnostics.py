@@ -106,6 +106,11 @@ def diagnostic_path(value: str) -> str:
     return value.split("|", 1)[0]
 
 
+def diagnostic_level(value: str) -> str:
+    parts = value.split("|", 2)
+    return parts[1] if len(parts) > 1 else ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, required=True)
@@ -114,6 +119,7 @@ def main() -> int:
     parser.add_argument("--outcome", action="append", nargs=2, metavar=("TOOL", "OUTCOME"), default=[])
     parser.add_argument("--has-files", choices=("true", "false"), required=True)
     parser.add_argument("--changed-files", type=Path, required=True)
+    parser.add_argument("--analyzed-files", type=Path)
     parser.add_argument("--new-diagnostics", type=Path, required=True)
     args = parser.parse_args()
 
@@ -123,22 +129,37 @@ def main() -> int:
         for tool, report in args.report
     }
     outcomes = dict(args.outcome)
-    modified_paths = changed_code_paths(args.changed_files)
+    refreshed_paths = changed_code_paths(
+        args.analyzed_files or args.changed_files
+    )
     baseline_path = args.cache_dir / "diagnostic-baseline.json"
     baseline = load_baseline(baseline_path)
+    failed_tools = [
+        tool
+        for tool in reports
+        if args.has_files == "true" and outcomes.get(tool) == "failure"
+    ]
+    failed_tools.extend(
+        tool
+        for tool, current in reports.items()
+        if args.has_files == "true"
+        and any(diagnostic_level(value) == "error" for value in current)
+        and tool not in failed_tools
+    )
     if baseline is None:
-        failed_tools = [
-            tool
-            for tool, current in reports.items()
-            if args.has_files == "true"
-            and outcomes.get(tool) == "failure"
-            and not current
-        ]
         if failed_tools:
             args.new_diagnostics.parent.mkdir(parents=True, exist_ok=True)
-            args.new_diagnostics.write_text("baseline not initialized\n")
+            args.new_diagnostics.write_text(
+                "\n".join(
+                    f"{tool}: {value}"
+                    for tool, current in reports.items()
+                    if tool in failed_tools
+                    for value in sorted(current)
+                )
+                + "\n"
+            )
             for tool in failed_tools:
-                print(f"::error::{tool} failed without a parseable diagnostic.")
+                print(f"::error::{tool} failed or emitted a compiler error.")
             return 1
         write_baseline(baseline_path, reports)
         args.new_diagnostics.parent.mkdir(parents=True, exist_ok=True)
@@ -147,10 +168,7 @@ def main() -> int:
         return 0
 
     new_diagnostics: list[str] = []
-    failed_tools: list[str] = []
     for tool, current in reports.items():
-        if args.has_files == "true" and outcomes.get(tool) == "failure" and not current:
-            failed_tools.append(tool)
         for diagnostic in sorted(current - baseline.get(tool, set())):
             new_diagnostics.append(f"{tool}: {diagnostic}")
 
@@ -160,7 +178,7 @@ def main() -> int:
     )
     if failed_tools:
         for tool in failed_tools:
-            print(f"::error::{tool} failed without a parseable diagnostic.")
+            print(f"::error::{tool} failed or emitted a compiler error.")
         return 1
     if new_diagnostics:
         for diagnostic in new_diagnostics:
@@ -171,7 +189,7 @@ def main() -> int:
         baseline[tool] = {
             diagnostic
             for diagnostic in baseline.get(tool, set())
-            if diagnostic_path(diagnostic) not in modified_paths
+            if diagnostic_path(diagnostic) not in refreshed_paths
         }
         baseline[tool].update(current)
     write_baseline(baseline_path, baseline)

@@ -1,11 +1,37 @@
 #include "GlobalConfigManager.h"
+#include <cerrno>
 #include <cstdarg>
+#include <climits>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <tinyxml2.h>
 #include <vector>
 #include "Platform.h"
 #include "UtilStreams.h"
 #include "LocaleConfigManager.h"
+
+namespace {
+int ParseInt(const std::string &value, int fallback) {
+    char *end = nullptr;
+    errno = 0;
+    const long parsed = std::strtol(value.c_str(), &end, 10);
+    if(end == value.c_str() || *end != '\0' || errno == ERANGE ||
+       parsed < INT_MIN || parsed > INT_MAX)
+        return fallback;
+    return static_cast<int>(parsed);
+}
+
+float ParseFloat(const std::string &value, float fallback) {
+    char *end = nullptr;
+    errno = 0;
+    const float parsed = std::strtof(value.c_str(), &end);
+    if(end == value.c_str() || *end != '\0' || errno == ERANGE ||
+       !std::isfinite(parsed))
+        return fallback;
+    return parsed;
+}
+} // namespace
 
 bool TVPWriteDataToFile(const ttstr &filepath, const void *data,
                         unsigned int len);
@@ -161,7 +187,7 @@ int iSysConfigManager::GetValue<int>(const std::string &name,
         SetValueInt(name, defVal);
         return defVal;
     }
-    return atoi(it->second.c_str());
+    return ParseInt(it->second, defVal);
 }
 
 template <>
@@ -172,7 +198,7 @@ float iSysConfigManager::GetValue<float>(const std::string &name,
         SetValueFloat(name, defVal);
         return defVal;
     }
-    return atof(it->second.c_str());
+    return ParseFloat(it->second, defVal);
 }
 
 template <>

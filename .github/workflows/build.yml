@@ -410,6 +410,7 @@ jobs:
             --outcome cppcheck "$cppcheck_outcome" \
             --has-files "${{ steps.select_analysis.outputs.has_files }}" \
             --changed-files out/analysis/changed-files.txt \
+            --analyzed-files out/analysis/affected-files.txt \
             --new-diagnostics out/analysis/new-diagnostics.txt
 
       - name: Install PVS-Studio

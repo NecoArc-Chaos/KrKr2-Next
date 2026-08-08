@@ -1,5 +1,6 @@
 #include "AudioCodecFFmpeg.h"
 
+#include <charconv>
 #ifdef TARGET_POSIX
 #include "XMemUtils.h"
 #endif
@@ -18,6 +19,17 @@ extern "C" {
 #include "Clock.h"
 #include "AEUtil.h"
 #include "AEAudioFormat.h"
+
+namespace {
+bool ParseBooleanOption(const std::string &value, bool fallback) {
+    int parsed = 0;
+    const auto result =
+        std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if(result.ec != std::errc{} || result.ptr != value.data() + value.size())
+        return fallback;
+    return parsed != 0;
+}
+} // namespace
 
 NS_KRMOVIE_BEGIN
 CDVDAudioCodecFFmpeg::CDVDAudioCodecFFmpeg(CProcessInfo &processInfo) :
@@ -42,7 +54,8 @@ bool CDVDAudioCodecFFmpeg::Open(CDVDStreamInfo &hints,
     // set any special options
     for(auto &m_key : options.m_keys)
         if(m_key.m_name == "allowdtshddecode")
-            allowdtshddecode = atoi(m_key.m_value.c_str());
+            allowdtshddecode =
+                ParseBooleanOption(m_key.m_value, allowdtshddecode);
 
     if(hints.codec == AV_CODEC_ID_DTS && allowdtshddecode)
         pCodec = avcodec_find_decoder_by_name("dcadec");

@@ -1,5 +1,6 @@
 #include "VideoCodecFFmpeg.h"
 
+#include <charconv>
 #include "ThreadIntf.h"
 
 #ifndef TARGET_POSIX
@@ -39,6 +40,18 @@ extern "C" {
 #include "CodecUtils.h"
 #include <cstdlib>
 #include <algorithm>
+
+namespace {
+unsigned int ParseUnsignedOption(const std::string &value,
+                                 unsigned int fallback) {
+    unsigned int parsed = 0;
+    const auto result =
+        std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if(result.ec != std::errc{} || result.ptr != value.data() + value.size())
+        return fallback;
+    return parsed;
+}
+} // namespace
 
 NS_KRMOVIE_BEGIN
 enum DecoderState {
@@ -382,7 +395,8 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints,
     for(std::vector<CDVDCodecOption>::iterator it = options.m_keys.begin();
         it != options.m_keys.end(); ++it) {
         if(it->m_name == "surfaces")
-            m_uSurfacesCount = atoi(it->m_value.c_str());
+            m_uSurfacesCount = ParseUnsignedOption(it->m_value,
+                                                   m_uSurfacesCount);
         else
             av_opt_set(m_pCodecContext, it->m_name.c_str(), it->m_value.c_str(),
                        0);

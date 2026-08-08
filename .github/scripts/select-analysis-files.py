@@ -39,6 +39,11 @@ FULL_PREFIXES = (
     "vcpkg/",
 )
 CODE_PREFIXES = ("apps/", "bridge/", "cpp/", "platforms/", "tools/")
+EXCLUDED_ANALYSIS_PREFIXES = (
+    "out/",
+    "cpp/external/",
+    "cpp/plugins/cubism/",
+)
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -79,6 +84,14 @@ def source_path(repo: Path, entry: dict) -> str | None:
     if not directory.is_absolute():
         directory = repo / directory
     return stable_path(repo, str(entry.get("file", "")), directory)
+
+
+def is_analyzable_source(path: str) -> bool:
+    return (
+        path.startswith(CODE_PREFIXES)
+        and Path(path).suffix.lower() in SOURCE_SUFFIXES
+        and not path.startswith(EXCLUDED_ANALYSIS_PREFIXES)
+    )
 
 
 def changed_paths(repo: Path, base: str, head: str) -> set[str] | None:
@@ -171,7 +184,7 @@ def scan_dependencies(repo: Path, compile_commands: Path, cache_file: Path) -> d
         for command in unit.get("commands", []):
             source_value = command.get("input-file") or unit.get("input-file")
             source = stable_path(repo, str(source_value or ""))
-            if not source:
+            if not source or not is_analyzable_source(source):
                 continue
             files = {
                 dependency
@@ -252,7 +265,7 @@ def main() -> int:
         if not isinstance(entry, dict):
             continue
         source = source_path(repo, entry)
-        if source:
+        if source and is_analyzable_source(source):
             source_entries.setdefault(source, []).append(entry)
 
     head = args.head_sha or "HEAD"
@@ -286,6 +299,7 @@ def main() -> int:
             path
             for path in changed
             if path.startswith(CODE_PREFIXES)
+            and not path.startswith(EXCLUDED_ANALYSIS_PREFIXES)
             and not source_change(path)
             and not header_change(path)
         }
@@ -306,7 +320,7 @@ def main() -> int:
                 selected.update(
                     source
                     for source, files in dependencies.items()
-                    if files.intersection(headers)
+                    if source in source_entries and files.intersection(headers)
                 )
 
     if full:

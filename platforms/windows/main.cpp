@@ -1,44 +1,84 @@
-#include "main.h"
-#include <cocos2d.h>
+#include <windows.h>
 
-#include <spdlog/spdlog.h>
+#include <chrono>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <shellapi.h>
-#include <boost/locale.hpp>
+#include <spdlog/spdlog.h>
 
-#include "tjsString.h"
-#include "environ/cocos2d/AppDelegate.h"
+#include "environ/Application.h"
+#include "environ/EngineBootstrap.h"
+#include "base/impl/SysInitImpl.h"
 
-#include "environ/ui/MainFileSelectorForm.h"
-USING_NS_CC;
-
-int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                     LPTSTR lpCmdLine, int nCmdShow) {
-    UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
-
-    // 处理命令行参数，获取拖拽的文件路径
-    int argc = 0;
-    LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-
-    if(argc > 1) {
-        std::wstring xp3Path = argv[1];
-        std::string xp3PathUtf8 =
-            boost::locale::conv::utf_to_utf<char>(xp3Path);
-        spdlog::info("XP3 文件路径: {}", xp3PathUtf8);
-        TVPMainFileSelectorForm::filePath = xp3PathUtf8;
+namespace {
+std::string utf8_from_wide(const wchar_t *value) {
+    if(!value || !*value) {
+        return {};
     }
 
-    LocalFree(argv);
+    const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value,
+                                         -1, nullptr, 0, nullptr, nullptr);
+    if(size <= 1) {
+        return {};
+    }
 
+    std::string result(static_cast<size_t>(size), '\0');
+    if(WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1,
+                           result.data(), size, nullptr, nullptr) == 0) {
+        return {};
+    }
+    result.resize(static_cast<size_t>(size - 1));
+    return result;
+}
+} // namespace
+
+int wmain(int argc, wchar_t **argv) {
     spdlog::set_level(spdlog::level::debug);
 
     static auto core_logger = spdlog::stdout_color_mt("core");
     static auto tjs2_logger = spdlog::stdout_color_mt("tjs2");
     static auto plugin_logger = spdlog::stdout_color_mt("plugin");
-
     spdlog::set_default_logger(core_logger);
 
-    static auto pAppDelegate = std::make_unique<TVPAppDelegate>();
-    return pAppDelegate->run();
+    if(argc < 2) {
+        spdlog::error("Usage: krkr2.exe <game path>");
+        return 2;
+    }
+
+    std::vector<std::string> utf8_arguments;
+    utf8_arguments.reserve(static_cast<size_t>(argc));
+    for(int index = 0; index < argc; ++index) {
+        std::string argument = utf8_from_wide(argv[index]);
+        if(argument.empty() && argv[index] && *argv[index]) {
+            spdlog::error("Command-line argument {} is not valid UTF-16", index);
+            return 2;
+        }
+        utf8_arguments.emplace_back(std::move(argument));
+    }
+    std::vector<char *> narrow_argv;
+    narrow_argv.reserve(utf8_arguments.size() + 1);
+    for(std::string &argument : utf8_arguments)
+        narrow_argv.push_back(argument.data());
+    narrow_argv.push_back(nullptr);
+    _argc = argc;
+    _argv = narrow_argv.data();
+
+    const std::string &game_path = utf8_arguments[1];
+
+    if(!TVPEngineBootstrap::Initialize(960, 640)) {
+        spdlog::error("Failed to initialize engine bootstrap");
+        return 1;
+    }
+
+    const bool started = Application->StartApplication(ttstr(game_path));
+    while(started && !TVPTerminated) {
+        Application->Run();
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+
+    TVPEngineBootstrap::Shutdown();
+    return started ? 0 : 1;
 }

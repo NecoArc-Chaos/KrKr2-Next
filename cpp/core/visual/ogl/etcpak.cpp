@@ -3,20 +3,10 @@
 #include <assert.h>
 #include <cstdint>
 #include <algorithm>
-#include <libavutil/mathematics.h>
 #include <future>
 #include <cmath>
 #include "tvpgl.h"
 #include "tjsUtils.h"
-
-#define _bswap(x)                                                              \
-    ((x & 0xFF) << 24) | ((x & 0xFF00) << 8) | ((x & 0xFF0000) >> 8) | (x >> 24)
-namespace std {
-    float _fma_(float x, float y, float z) { return fmaf(x, y, z); }
-} // namespace std
-#define fma _fma_
-float _log2_(float n) { return log(n) / M_LN2; }
-#define log2 _log2_
 
 namespace ETCPacker {
     typedef int8_t int8;
@@ -29,6 +19,13 @@ namespace ETCPacker {
     typedef uint64_t uint64;
 
     typedef unsigned int uint;
+
+    static uint32 ByteSwap32(uint32 value) {
+        return ((value & 0x000000FFu) << 24) |
+            ((value & 0x0000FF00u) << 8) |
+            ((value & 0x00FF0000u) >> 8) |
+            ((value & 0xFF000000u) >> 24);
+    }
 
     // takes as input a value, returns the value clamped to the
     // interval [0,255]. NO WARRANTY --- SEE STATEMENT IN TOP OF FILE
@@ -1042,8 +1039,8 @@ namespace ETCPacker {
 
             lo |= g_flags[idx];
 
-            uint64 result = static_cast<uint32>(_bswap(lo));
-            result |= static_cast<uint64>(static_cast<uint32>(_bswap(hi)))
+            uint64 result = static_cast<uint32>(ByteSwap32(lo));
+            result |= static_cast<uint64>(static_cast<uint32>(ByteSwap32(hi)))
                 << 32;
 
             return std::make_pair(result, error);
@@ -1112,7 +1109,9 @@ namespace ETCPacker {
     }
 
     inline int NumberOfMipLevels(const v2i &size) {
-        return (int)floor(log2(std::max(size.x, size.y))) + 1;
+        return static_cast<int>(
+                   std::floor(std::log2(std::max(size.x, size.y)))) +
+            1;
     }
 
     Bitmap::Bitmap(const v2i &size) :

@@ -42,6 +42,21 @@ iTVPRenderManager *TVPGetSoftwareRenderManager();
 // intact ( does not affect ) gamma adjustment data
 tTVPGLGammaAdjustData TVPIntactGammaAdjustData = { 1.0, 0,   255, 1.0, 0,
                                                    255, 1.0, 0,   255 };
+
+namespace {
+bool IsIntactGammaAdjustData(const tTVPGLGammaAdjustData &data) {
+    return data.RGamma == TVPIntactGammaAdjustData.RGamma &&
+        data.RFloor == TVPIntactGammaAdjustData.RFloor &&
+        data.RCeil == TVPIntactGammaAdjustData.RCeil &&
+        data.GGamma == TVPIntactGammaAdjustData.GGamma &&
+        data.GFloor == TVPIntactGammaAdjustData.GFloor &&
+        data.GCeil == TVPIntactGammaAdjustData.GCeil &&
+        data.BGamma == TVPIntactGammaAdjustData.BGamma &&
+        data.BFloor == TVPIntactGammaAdjustData.BFloor &&
+        data.BCeil == TVPIntactGammaAdjustData.BCeil;
+}
+} // namespace
+
 //---------------------------------------------------------------------------
 const static float sBmFactor[] = {
     59, // bmCopy,
@@ -4724,7 +4739,7 @@ void iTVPBaseBitmap::AdjustGamma(tTVPRect rect,
 
     BOUND_CHECK(RET_VOID);
 
-    if(!memcmp(&data, &TVPIntactGammaAdjustData, sizeof(tTVPGLGammaAdjustData)))
+    if(IsIntactGammaAdjustData(data))
         return;
 #if 0
 	tTVPGLGammaAdjustTempData temp;
@@ -4772,7 +4787,7 @@ void iTVPBaseBitmap::AdjustGammaForAdditiveAlpha(
 
     BOUND_CHECK(RET_VOID);
 
-    if(!memcmp(&data, &TVPIntactGammaAdjustData, sizeof(tTVPGLGammaAdjustData)))
+    if(IsIntactGammaAdjustData(data))
         return;
 #if 0
 	tTVPGLGammaAdjustTempData temp;

@@ -30,11 +30,13 @@ struct layerExRaster : public layerExBase
             pitch = (tjs_int)var;
         }
 
-        if (_width != width || _height != height) return;
+        if(_width != width || _height != height || lines <= 0 || cycle == 0)
+            return;
 
-        double omega = 2 * M_PI / lines;
-        tjs_int CurH = (tjs_int)maxh;
-        double rad = -omega * time / cycle * (height / 2);
+        const double omega = 2 * M_PI / static_cast<double>(lines);
+        const tjs_int CurH = static_cast<tjs_int>(maxh);
+        double rad = -omega * static_cast<double>(time) /
+            static_cast<double>(cycle) * (static_cast<double>(height) / 2.0);
 
         rad += omega * _clipTop;
         _buffer += _pitch * _clipTop + _clipLeft * 4;
