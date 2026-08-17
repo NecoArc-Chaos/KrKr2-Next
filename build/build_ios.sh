@@ -170,48 +170,14 @@ PLUGIN_LIBS_DIR="$PROJECT_ROOT/bridge/flutter_engine_bridge/ios/Libs"
 mkdir -p "$PLUGIN_LIBS_DIR"
 
 # --- Collect project static libraries ---
-# Exclude cpp/plugins/ top-level libs (already in libengine_api.a via CMake).
-# Keep deeply-nested sub-libs (e.g. psdparse/) which have unique .o files.
+# Include all project-built static libraries (engine_api, krkr2core, krkr2plugin, tjs2, plugin submodules)
 PROJECT_LIBS=()
 while IFS= read -r -d '' lib; do
     PROJECT_LIBS+=("$lib")
-done < <(find "$CMAKE_BUILD_DIR" -name "*.a" -not -path "*/vcpkg_installed/*" -not -path "*/cpp/plugins/*" -print0)
+done < <(find "$CMAKE_BUILD_DIR" -name "*.a" -not -path "*/vcpkg_installed/*" -print0)
 
-# Merge project libs into libengine_project.a
-# For psdparse: only extract its unique .o files (not already in libengine_api.a)
-MERGE_TMPDIR=$(mktemp -d)
-trap "rm -rf '$MERGE_TMPDIR'" EXIT
-
-# First, merge all project libs normally
-libtool -static -o "$MERGE_TMPDIR/libengine_project_base.a" "${PROJECT_LIBS[@]}"
-
-# Build a set of .o names already in the project library
-ar t "$MERGE_TMPDIR/libengine_project_base.a" | sort -u > "$MERGE_TMPDIR/project_objs.txt"
-
-# Extract only unique .o files from psdparse (and other deep plugin sub-libs)
-PSDPARSE_UNIQUE_OBJS=()
-while IFS= read -r -d '' sublib; do
-    sublibname="$(basename "$sublib" .a)"
-    extractdir="$MERGE_TMPDIR/extract_${sublibname}"
-    mkdir -p "$extractdir"
-    (cd "$extractdir" && ar x "$sublib")
-    for obj in "$extractdir"/*.o; do
-        [[ -f "$obj" ]] || continue
-        objname="$(basename "$obj")"
-        if ! grep -qx "$objname" "$MERGE_TMPDIR/project_objs.txt"; then
-            PSDPARSE_UNIQUE_OBJS+=("$obj")
-        fi
-    done
-done < <(find "$CMAKE_BUILD_DIR/cpp/plugins" -mindepth 3 -name "*.a" -print0 2>/dev/null)
-
-if [[ ${#PSDPARSE_UNIQUE_OBJS[@]} -gt 0 ]]; then
-    log_info "  Plugin sub-lib unique .o files: ${#PSDPARSE_UNIQUE_OBJS[@]}"
-    # Merge project base + unique plugin objects
-    libtool -static -o "$PLUGIN_LIBS_DIR/libengine_project.a" \
-        "$MERGE_TMPDIR/libengine_project_base.a" "${PSDPARSE_UNIQUE_OBJS[@]}"
-else
-    cp "$MERGE_TMPDIR/libengine_project_base.a" "$PLUGIN_LIBS_DIR/libengine_project.a"
-fi
+# Merge all project static libraries into libengine_project.a
+libtool -static -o "$PLUGIN_LIBS_DIR/libengine_project.a" "${PROJECT_LIBS[@]}"
 log_info "Project library -> $PLUGIN_LIBS_DIR/libengine_project.a"
 
 # --- Collect vcpkg third-party static libraries ---
