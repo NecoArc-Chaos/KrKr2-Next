@@ -148,6 +148,10 @@ if(KRKR2_ENABLE_LIVE2D)
             PNG::PNG
             unofficial::minizip::minizip)
     endif()
+else()
+    target_sources(${PROJECT_NAME} PRIVATE
+        krkrlive2d_stub.cpp
+        krkrgles_stub.cpp)
 endif()
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2PLUGIN_PATH} ${KRKR2PLUGIN_PATH}/simplebinder)

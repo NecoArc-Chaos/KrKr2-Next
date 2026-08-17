@@ -245,8 +245,8 @@ jobs:
   analysis:
     needs: vcpkg-dependencies
     if: >-
-      always() && (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      always() && !cancelled() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result != 'cancelled')
     name: Static analysis
     runs-on: ubuntu-24.04
     steps:
@@ -537,9 +537,9 @@ jobs:
     name: CodeQL C/C++
     needs: [analysis, vcpkg-dependencies]
     if: >-
-      always() && needs.analysis.result == 'success' &&
+      always() && !cancelled() && needs.analysis.result == 'success' &&
       (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -623,8 +623,8 @@ jobs:
     name: Linux native
     needs: vcpkg-dependencies
     if: >-
-      always() && (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      always() && !cancelled() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -709,8 +709,8 @@ jobs:
     name: Windows native
     needs: vcpkg-dependencies
     if: >-
-      always() && (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      always() && !cancelled() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: windows-2025
     steps:
       - name: Checkout
@@ -818,8 +818,8 @@ jobs:
     name: Android APK
     needs: vcpkg-dependencies
     if: >-
-      always() && (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      always() && !cancelled() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: ubuntu-24.04
     env:
       ANDROID_NDK_VERSION: 28.0.13004108
@@ -926,8 +926,8 @@ jobs:
     name: macOS app
     needs: vcpkg-dependencies
     if: >-
-      always() && (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      always() && !cancelled() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -1021,8 +1021,8 @@ jobs:
     name: iOS app
     needs: vcpkg-dependencies
     if: >-
-      always() && (github.event_name == 'pull_request' ||
-      needs['vcpkg-dependencies'].result == 'success')
+      always() && !cancelled() && (github.event_name == 'pull_request' ||
+      needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: macos-14
     steps:
       - name: Checkout

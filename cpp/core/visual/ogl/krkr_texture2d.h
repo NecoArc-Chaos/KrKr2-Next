@@ -21,7 +21,7 @@
 #pragma once
 
 #include "ogl_common.h"
-#include <cstddef>   // size_t, ssize_t
+#include <cstddef>   // size_t
 #include <cstring>   // memcpy
 
 namespace krkr {
@@ -91,7 +91,7 @@ public:
      * @param pixelsHigh Height in pixels
      * @param contentSize Content size (unused, kept for API compat)
      */
-    bool initWithData(const void *data, ssize_t dataLen, PixelFormat format,
+    bool initWithData(const void *data, size_t dataLen, PixelFormat format,
                       int pixelsWide, int pixelsHigh, const Size &contentSize) {
         _pixelsWide  = pixelsWide;
         _pixelsHigh  = pixelsHigh;
