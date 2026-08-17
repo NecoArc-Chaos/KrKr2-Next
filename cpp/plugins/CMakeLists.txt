@@ -106,6 +106,11 @@ if(KRKR2_ENABLE_LIVE2D)
     if(CUBISM_MISSING)
         list(JOIN CUBISM_MISSING ", " CUBISM_MISSING_TEXT)
         message(STATUS "Live2D Cubism plugin disabled; missing: ${CUBISM_MISSING_TEXT}")
+        # Provide anchor stubs so the linker can resolve symbols declared in
+        # engine_api.cpp even when krkrgles.cpp / krkrlive2d.cpp are not built.
+        target_sources(${PROJECT_NAME} PRIVATE
+            krkrlive2d_stub.cpp
+            krkrgles_stub.cpp)
     else()
         add_library(CubismFramework STATIC ${CUBISM_FW_SOURCES})
         target_include_directories(CubismFramework PUBLIC

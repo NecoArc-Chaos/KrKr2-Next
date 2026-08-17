@@ -148,14 +148,19 @@ namespace GL { // independ from global gl functions
 #endif
 #ifdef _MSC_VER
     typedef PROC(WINAPI fGetProcAddress)(LPCSTR);
-#elif defined(TARGET_OS_IPHONE)
-    typedef void *(fGetProcAddress)(const char *);
 #elif defined(__ANDROID__)
     typedef void *(EGLAPIENTRY fGetProcAddress)(const char *);
-#elif defined(LINUX)
+#elif defined(__APPLE__)
+    // Covers both macOS and iOS; TARGET_OS_IPHONE requires TargetConditionals.h
+    // which may not be included at this point.
+    typedef void *(fGetProcAddress)(const char *);
+#elif defined(LINUX) || defined(__linux__)
     typedef void *(GLAPIENTRY fGetProcAddress)(const char *);
+#else
+    typedef void *(fGetProcAddress)(const char *);
 #endif
     static fGetProcAddress *glGetProcAddress = nullptr;
+
 
     typedef void(GLAPIENTRY fCopyImageSubData)(
         GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX,
