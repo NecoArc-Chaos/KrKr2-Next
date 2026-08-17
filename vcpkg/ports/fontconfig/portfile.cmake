@@ -1,6 +1,13 @@
-vcpkg_from_url(
-    URL "https://raw.githubusercontent.com/NecoArc-Chaos/KrKr2-Next/main/vcpkg/ports/fontconfig/fontconfig-2.15.0.tar.gz"
+vcpkg_download_distfile(
+    ARCHIVE
+    URLS "https://raw.githubusercontent.com/NecoArc-Chaos/KrKr2-Next/main/vcpkg/ports/fontconfig/fontconfig-2.15.0.tar.gz"
+    FILENAME "fontconfig-2.15.0.tar.gz"
     SHA512 daa6d1e6058e12c694d9e1512e09be957ff7f3fa375246b9d13eb0a8cf2f21e1512a5cabe93f270e96790e2c20420bf7422d213e43ab9749da3255286ea65a7c
+)
+
+vcpkg_extract_source_archive(
+    SOURCE_PATH
+    ARCHIVE "${ARCHIVE}"
     PATCHES
         emscripten.diff
         no-etc-symlinks.patch
