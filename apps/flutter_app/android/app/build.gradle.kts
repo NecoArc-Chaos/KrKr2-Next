@@ -5,6 +5,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Test signing key for non-official builds (used by CI and local release builds).
+val keystorePath = file("../../../../android/krkr2-test-keystore.jks")
+val hasTestKeystore = keystorePath.exists()
+
 android {
     namespace = "org.github.krkr2.flutter_app"
     compileSdk = flutter.compileSdkVersion
@@ -68,9 +72,16 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasTestKeystore) {
+                signingConfig = signingConfigs.create("test") {
+                    storeFile = keystorePath
+                    storePassword = "krkr2test123"
+                    keyAlias = "krkr2"
+                    keyPassword = "krkr2test123"
+                }
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
