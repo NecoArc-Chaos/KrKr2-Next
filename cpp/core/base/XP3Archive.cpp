@@ -12,6 +12,7 @@
 #include "tjsCommHead.h"
 
 #include "XP3Archive.h"
+#include "MaitetsuCxDecryption.h"
 #include "MsgIntf.h"
 #include "DebugIntf.h"
 #include "EventIntf.h"
@@ -1174,6 +1175,11 @@ tjs_uint tTVPXP3ArchiveStream::Read(void *buffer, tjs_uint read_size) {
                 Owner->GetFileHash(StorageIndex), Owner->GetName(StorageIndex));
             TVPXP3ArchiveExtractionFilter((tTVPXP3ExtractionFilterInfo *)&info,
                                           &FilterContext);
+        } else {
+            tTVPXP3ExtractionFilterInfo info(
+                CurPos, (tjs_uint8 *)buffer + write_size, one_size,
+                Owner->GetFileHash(StorageIndex), Owner->GetName(StorageIndex));
+            MaitetsuCxExtractionFilter((tTVPXP3ExtractionFilterInfo *)&info);
         }
 
         // adjust members

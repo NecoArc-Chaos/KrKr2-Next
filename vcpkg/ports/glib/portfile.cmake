@@ -11,6 +11,7 @@ vcpkg_extract_source_archive(SOURCE_PATH
     PATCHES
         use-libiconv-on-windows.patch
         libintl.patch
+        disable-gdb-install.patch
 )
 
 set(LANGUAGES C CXX)

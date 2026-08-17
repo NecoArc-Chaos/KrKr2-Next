@@ -17,6 +17,7 @@ set(BASE_SOURCE_FILES
     ${BASE_PATH}/XP3Archive.cpp
     ${BASE_PATH}/ZIPArchive.cpp
     ${BASE_PATH}/KAGParser.cpp
+    ${BASE_PATH}/MaitetsuCxDecryption.cpp
     ${BASE_PATH}/MsgIntf.cpp
 
     ${BASE_PATH}/impl/EventImpl.cpp
