@@ -31,10 +31,10 @@ jobs:
     if: github.event_name != 'pull_request'
     name: vcpkg dependencies (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
     permissions:
       contents: read
       actions: read
-      packages: write
     env:
       VCPKG_BINARY_CACHE_MODE: readwrite
     strategy:
@@ -91,7 +91,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             autoconf autoconf-archive automake bison flex libegl1-mesa-dev libfontconfig1-dev \
-            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool mono-complete \
+            libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool \
             libx11-dev libxext-dev libxfixes-dev libxi-dev libxrandr-dev \
             nasm ninja-build pkg-config
 
@@ -182,15 +182,11 @@ jobs:
       - name: Configure binary cache (Unix)
         if: matrix.platform != 'windows'
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Configure binary cache (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: pwsh -File .github/scripts/configure-vcpkg-binary-cache.ps1
 
       - name: Prebuild Android dependencies
@@ -249,6 +245,7 @@ jobs:
       needs['vcpkg-dependencies'].result != 'cancelled')
     name: Static analysis
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -284,7 +281,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf autoconf-archive automake bison clang clang-tidy clang-tools cppcheck mono-complete \
+            autoconf autoconf-archive automake bison clang clang-tidy clang-tools cppcheck \
             flex libegl1-mesa-dev libfontconfig1-dev libgl1-mesa-dev libgtk-3-dev \
             libgles2-mesa-dev libomp-dev libtool libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build pkg-config
@@ -315,8 +312,6 @@ jobs:
 
       - name: Configure binary cache
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Generate compilation database
@@ -541,6 +536,7 @@ jobs:
       (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -563,7 +559,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf autoconf-archive automake bison flex libegl1-mesa-dev libfontconfig1-dev libgtk-3-dev mono-complete \
+            autoconf autoconf-archive automake bison flex libegl1-mesa-dev libfontconfig1-dev libgtk-3-dev \
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libtool libx11-dev \
             libxext-dev libxfixes-dev libxi-dev libxrandr-dev nasm ninja-build \
             pkg-config
@@ -594,8 +590,6 @@ jobs:
 
       - name: Configure binary cache
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Build for CodeQL extraction
@@ -626,6 +620,7 @@ jobs:
       always() && !cancelled() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -641,7 +636,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf autoconf-archive automake bison flex libegl1-mesa-dev libfontconfig1-dev libgtk-3-dev mono-complete \
+            autoconf autoconf-archive automake bison flex libegl1-mesa-dev libfontconfig1-dev libgtk-3-dev \
             libgl1-mesa-dev libgles2-mesa-dev libomp-dev libx11-dev libxext-dev \
             libxfixes-dev libxi-dev libxrandr-dev libtool nasm ninja-build pkg-config
 
@@ -671,8 +666,6 @@ jobs:
 
       - name: Configure binary cache
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -712,6 +705,7 @@ jobs:
       always() && !cancelled() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: windows-2025
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -784,8 +778,6 @@ jobs:
 
       - name: Configure binary cache
         shell: pwsh
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: pwsh -File .github/scripts/configure-vcpkg-binary-cache.ps1
 
       - name: Configure
@@ -821,6 +813,7 @@ jobs:
       always() && !cancelled() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     env:
       ANDROID_NDK_VERSION: 28.0.13004108
     steps:
@@ -867,7 +860,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf autoconf-archive automake bison libtool mono-complete nasm ninja-build pkg-config
+          sudo apt-get install -y autoconf autoconf-archive automake bison libtool nasm ninja-build pkg-config
 
       - name: Restore vcpkg source downloads
         id: vcpkg_source_cache
@@ -894,8 +887,6 @@ jobs:
 
       - name: Configure binary cache
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -929,6 +920,7 @@ jobs:
       always() && !cancelled() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: macos-14
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -948,7 +940,6 @@ jobs:
           brew list bison >/dev/null 2>&1 || brew install bison
           brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
-          brew list mono >/dev/null 2>&1 || brew install mono
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -982,8 +973,6 @@ jobs:
 
       - name: Configure binary cache
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
@@ -1024,6 +1013,7 @@ jobs:
       always() && !cancelled() && (github.event_name == 'pull_request' ||
       needs['vcpkg-dependencies'].result != 'cancelled')
     runs-on: macos-14
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -1043,7 +1033,6 @@ jobs:
           brew list bison >/dev/null 2>&1 || brew install bison
           brew list libtool >/dev/null 2>&1 || brew install libtool
           brew list ninja >/dev/null 2>&1 || brew install ninja
-          brew list mono >/dev/null 2>&1 || brew install mono
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -1077,8 +1066,6 @@ jobs:
 
       - name: Configure binary cache
         shell: bash
-        env:
-          VCPKG_NUGET_TOKEN: ${{ github.event_name != 'pull_request' && secrets.GTHUB_TOKEN || github.token }}
         run: bash .github/scripts/configure-vcpkg-binary-cache.sh
 
       - name: Setup ccache
