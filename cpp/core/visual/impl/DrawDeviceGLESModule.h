@@ -2,7 +2,17 @@
 #include "tjs.h"
 #include "tjsNative.h"
 #include "DrawDevice.h"
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <unordered_map>
 
 namespace DrawDeviceGLES {
@@ -13,7 +23,12 @@ using ModuleStore = std::unordered_map<uintptr_t, std::unordered_map<ModuleName,
 
 inline tjs_error TryCreateModuleViaKrkrGLES(tTJSVariant *result, tjs_int width,
                                             tjs_int height) {
+#if defined(_WIN32)
+    HMODULE hModule = GetModuleHandle(nullptr);
+    void *sym = hModule ? reinterpret_cast<void *>(GetProcAddress(hModule, "TVPKrkrGLESCreateModuleObject")) : nullptr;
+#else
     void *sym = dlsym(RTLD_DEFAULT, "TVPKrkrGLESCreateModuleObject");
+#endif
     if(!sym) return TJS_E_MEMBERNOTFOUND;
     auto fn = reinterpret_cast<CreateKrkrGLESModuleObjectFn>(sym);
     return fn(result, width, height);

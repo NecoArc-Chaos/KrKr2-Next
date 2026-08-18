@@ -215,6 +215,9 @@ log_step "Step 3/3: Building Flutter iOS app"
 
 export PATH="$FLUTTER_SDK/bin:$PATH"
 
+log_info "Configuring Flutter settings..."
+"$FLUTTER_BIN" config --no-enable-swift-package-manager 2>/dev/null || true
+
 log_info "Running flutter pub get..."
 (cd "$FLUTTER_APP_DIR" && "$FLUTTER_BIN" pub get)
 
