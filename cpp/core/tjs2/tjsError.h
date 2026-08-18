@@ -17,6 +17,14 @@
 #include "tjsVariant.h"
 #include "tjsString.h"
 
+// Win32's <windows.h> defines GetMessage as GetMessageA/GetMessageW.
+// Undefine it here so that TJS::eTJS::GetMessage() is not mangled by the
+// preprocessor in any translation unit that includes both windows.h and
+// this header.  We do this unconditionally so the fix is centralised.
+#ifdef GetMessage
+#undef GetMessage
+#endif
+
 namespace TJS {
     //---------------------------------------------------------------------------
     extern ttstr TJSNonamedException;
