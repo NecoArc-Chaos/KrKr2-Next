@@ -1,3 +1,7 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "tjsCommHead.h"
 #include "StorageIntf.h"
 #include "UtilStreams.h"
