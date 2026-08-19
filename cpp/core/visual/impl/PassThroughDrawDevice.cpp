@@ -23,6 +23,12 @@
 #include <math.h>
 #include "DrawDeviceGLESModule.h"
 using namespace DrawDeviceGLES;
+// Win32's <windows.h> (pulled in by DrawDeviceGLESModule.h or any transitive
+// header) defines GetMessage as a macro that expands to GetMessageA/W.
+// Undefine it here so that eTJS::GetMessage() calls below are not mangled.
+#ifdef GetMessage
+#  undef GetMessage
+#endif
 /*
         PassThroughDrawDevice クラスには、Window.PassThroughDrawDevice
    として アクセスできる。通常、Window クラスを生成すると、その

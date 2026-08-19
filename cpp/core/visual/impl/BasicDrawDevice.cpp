@@ -15,6 +15,12 @@
 #include "RenderManager.h"
 #include "DrawDeviceGLESModule.h"
 using namespace DrawDeviceGLES;
+// Win32's <windows.h> (pulled in by DrawDeviceGLESModule.h or any transitive
+// header) defines GetMessage as a macro that expands to GetMessageA/W.
+// Undefine it here so that eTJS::GetMessage() calls below are not mangled.
+#ifdef GetMessage
+#  undef GetMessage
+#endif
 
 #define ZeroMemory(p, n) memset(p, 0, n);
 // #include <d3d9.h>

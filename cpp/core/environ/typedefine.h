@@ -5,6 +5,11 @@
 #if defined(_WIN32) || defined(_WIN64)
 #define TARGET_WINDOWS 1
 #include <windows.h>
+// Win32's <windows.h> defines GetMessage as GetMessageA/GetMessageW via macro.
+// Undefine here so any TU that includes typedefine.h is not affected.
+#ifdef GetMessage
+#  undef GetMessage
+#endif
 #else
 #define TARGET_WINDOWS 0
 #include "tjsTypes.h"

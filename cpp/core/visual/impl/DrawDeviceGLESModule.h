@@ -10,6 +10,12 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+// Win32's <windows.h> defines GetMessage as GetMessageA/GetMessageW via macro.
+// Undefine it here at the source so it cannot pollute any TU that includes
+// this header after including tjsError.h.
+#ifdef GetMessage
+#  undef GetMessage
+#endif
 #else
 #include <dlfcn.h>
 #endif
