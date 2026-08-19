@@ -84,6 +84,21 @@ jobs:
         if: matrix.platform == 'android'
         uses: android-actions/setup-android@v3
 
+      - name: Configure reliable Ubuntu mirror
+        if: matrix.platform == 'linux' || matrix.platform == 'android'
+        shell: bash
+        run: |
+          # The hosted runner's azure.archive.ubuntu.com mirror can stall for
+          # hours instead of failing when it is unreachable. Use the public
+          # archive mirror and bound APT network retries/timeouts.
+          sudo sed -i \
+            -e 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            -e 's|http://security.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/80-retries
+          echo 'Acquire::http::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-timeout
+          echo 'Acquire::https::Timeout "30";' | sudo tee -a /etc/apt/apt.conf.d/80-timeout
+
       - name: Install Linux dependencies
         if: matrix.platform == 'linux' || matrix.platform == 'android'
         shell: bash
